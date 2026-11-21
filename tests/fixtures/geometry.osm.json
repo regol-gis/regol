@@ -1,0 +1,634 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "lon": 0.1,
+      "lat": 0.1,
+      "tags": {
+        "name": "Vertex 1"
+      }
+    },
+    {
+      "id": 2,
+      "lon": 0.10400000000000001,
+      "lat": 0.1,
+      "tags": {
+        "name": "Vertex 2"
+      }
+    },
+    {
+      "id": 3,
+      "lon": 0.10400000000000001,
+      "lat": 0.10400000000000001,
+      "tags": {
+        "name": "Vertex 3"
+      }
+    },
+    {
+      "id": 4,
+      "lon": 0.1,
+      "lat": 0.10400000000000001,
+      "tags": {
+        "name": "Vertex 4"
+      }
+    },
+    {
+      "id": 5,
+      "lon": 0.101,
+      "lat": 0.101,
+      "tags": {
+        "name": "Vertex 5"
+      }
+    },
+    {
+      "id": 6,
+      "lon": 0.10200000000000001,
+      "lat": 0.101,
+      "tags": {
+        "name": "Vertex 6"
+      }
+    },
+    {
+      "id": 7,
+      "lon": 0.10200000000000001,
+      "lat": 0.10200000000000001,
+      "tags": {
+        "name": "Vertex 7"
+      }
+    },
+    {
+      "id": 8,
+      "lon": 0.101,
+      "lat": 0.10200000000000001,
+      "tags": {
+        "name": "Vertex 8"
+      }
+    },
+    {
+      "id": 9,
+      "lon": 0.11,
+      "lat": 0.1,
+      "tags": {
+        "name": "Vertex 9"
+      }
+    },
+    {
+      "id": 10,
+      "lon": 0.114,
+      "lat": 0.1,
+      "tags": {
+        "name": "Vertex 10"
+      }
+    },
+    {
+      "id": 11,
+      "lon": 0.114,
+      "lat": 0.10400000000000001,
+      "tags": {
+        "name": "Vertex 11"
+      }
+    },
+    {
+      "id": 12,
+      "lon": 0.11,
+      "lat": 0.10400000000000001,
+      "tags": {
+        "name": "Vertex 12"
+      }
+    },
+    {
+      "id": 13,
+      "lon": 0.10800000000000001,
+      "lat": 0.10400000000000001,
+      "tags": {
+        "name": "Vertex 13"
+      }
+    },
+    {
+      "id": 14,
+      "lon": 0.10800000000000001,
+      "lat": 0.10800000000000001,
+      "tags": {
+        "name": "Vertex 14"
+      }
+    },
+    {
+      "id": 15,
+      "lon": 0.10400000000000001,
+      "lat": 0.10800000000000001,
+      "tags": {
+        "name": "Vertex 15"
+      }
+    },
+    {
+      "id": 16,
+      "lon": 0.12000000000000001,
+      "lat": 0.12000000000000001,
+      "tags": {
+        "name": "Vertex 16"
+      }
+    },
+    {
+      "id": 17,
+      "lon": 0.10300000000000001,
+      "lat": 0.101,
+      "tags": {
+        "name": "Vertex 17"
+      }
+    },
+    {
+      "id": 18,
+      "lon": 0.10300000000000001,
+      "lat": 0.10200000000000001,
+      "tags": {
+        "name": "Vertex 18"
+      }
+    },
+    {
+      "id": 19,
+      "lon": -1,
+      "lat": -80,
+      "tags": {
+        "name": "South"
+      }
+    },
+    {
+      "id": 20,
+      "lon": 1,
+      "lat": 80,
+      "tags": {
+        "name": "North"
+      }
+    }
+  ],
+  "ways": [
+    {
+      "id": 100,
+      "nodes": [
+        1,
+        2,
+        3
+      ],
+      "tags": {
+        "name": "Way 100"
+      }
+    },
+    {
+      "id": 101,
+      "nodes": [
+        1,
+        4,
+        3
+      ],
+      "tags": {
+        "name": "Way 101"
+      }
+    },
+    {
+      "id": 102,
+      "nodes": [
+        5,
+        6,
+        7
+      ],
+      "tags": {
+        "name": "Way 102"
+      }
+    },
+    {
+      "id": 103,
+      "nodes": [
+        5,
+        8,
+        7
+      ],
+      "tags": {
+        "name": "Way 103"
+      }
+    },
+    {
+      "id": 104,
+      "nodes": [
+        9,
+        10,
+        11,
+        12,
+        9
+      ],
+      "tags": {
+        "name": "Way 104"
+      }
+    },
+    {
+      "id": 105,
+      "nodes": [
+        3,
+        13,
+        14
+      ],
+      "tags": {
+        "name": "Way 105"
+      }
+    },
+    {
+      "id": 106,
+      "nodes": [
+        3,
+        15,
+        14
+      ],
+      "tags": {
+        "name": "Way 106"
+      }
+    },
+    {
+      "id": 107,
+      "nodes": [
+        1,
+        2,
+        3,
+        4,
+        1
+      ],
+      "tags": {
+        "building": "yes",
+        "name": "Way 107"
+      }
+    },
+    {
+      "id": 108,
+      "nodes": [
+        9,
+        10,
+        11,
+        12,
+        9
+      ],
+      "tags": {
+        "building": "yes",
+        "name": "Way 108"
+      }
+    },
+    {
+      "id": 109,
+      "nodes": [
+        16,
+        16
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Way 109"
+      }
+    },
+    {
+      "id": 110,
+      "nodes": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "tags": {
+        "area": "yes",
+        "name": "Way 110"
+      }
+    },
+    {
+      "id": 111,
+      "nodes": [
+        6,
+        17,
+        18,
+        7,
+        6
+      ],
+      "tags": {
+        "name": "Way 111"
+      }
+    },
+    {
+      "id": 112,
+      "nodes": [
+        19,
+        20
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Way 112"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "id": 200,
+      "members": [
+        [
+          "way",
+          101,
+          "outer"
+        ],
+        [
+          "way",
+          100,
+          "outer"
+        ],
+        [
+          "way",
+          102,
+          "inner"
+        ],
+        [
+          "way",
+          103,
+          "inner"
+        ],
+        [
+          "way",
+          104,
+          "outer"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "name": "Relation 200"
+      }
+    },
+    {
+      "id": 201,
+      "members": [
+        [
+          "way",
+          100,
+          ""
+        ],
+        [
+          "way",
+          101,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "route",
+        "name": "Relation 201"
+      }
+    },
+    {
+      "id": 202,
+      "members": [
+        [
+          "node",
+          1,
+          ""
+        ],
+        [
+          "node",
+          2,
+          ""
+        ],
+        [
+          "node",
+          1,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 202"
+      }
+    },
+    {
+      "id": 203,
+      "members": [
+        [
+          "way",
+          107,
+          ""
+        ],
+        [
+          "way",
+          108,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 203"
+      }
+    },
+    {
+      "id": 204,
+      "members": [
+        [
+          "relation",
+          201,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 204"
+      }
+    },
+    {
+      "id": 205,
+      "members": [
+        [
+          "relation",
+          202,
+          ""
+        ],
+        [
+          "node",
+          3,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 205"
+      }
+    },
+    {
+      "id": 206,
+      "members": [
+        [
+          "relation",
+          201,
+          ""
+        ],
+        [
+          "node",
+          3,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 206"
+      }
+    },
+    {
+      "id": 207,
+      "members": [
+        [
+          "way",
+          100,
+          "outer"
+        ],
+        [
+          "way",
+          105,
+          "outer"
+        ],
+        [
+          "way",
+          106,
+          "outer"
+        ],
+        [
+          "way",
+          101,
+          "outer"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "name": "Relation 207"
+      }
+    },
+    {
+      "id": 208,
+      "members": [
+        [
+          "way",
+          100,
+          "outer"
+        ],
+        [
+          "way",
+          101,
+          "outer"
+        ],
+        [
+          "way",
+          102,
+          "inner"
+        ],
+        [
+          "way",
+          103,
+          "inner"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "name": "Relation 208"
+      }
+    },
+    {
+      "id": 209,
+      "members": [
+        [
+          "relation",
+          208,
+          "outer"
+        ],
+        [
+          "way",
+          104,
+          "outer"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "name": "Relation 209"
+      }
+    },
+    {
+      "id": 210,
+      "members": [
+        [
+          "way",
+          109,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 210"
+      }
+    },
+    {
+      "id": 211,
+      "members": [
+        [
+          "node",
+          16,
+          ""
+        ],
+        [
+          "relation",
+          212,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 211"
+      }
+    },
+    {
+      "id": 212,
+      "members": [
+        [
+          "node",
+          1,
+          ""
+        ],
+        [
+          "relation",
+          211,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Relation 212"
+      }
+    },
+    {
+      "id": 213,
+      "members": [
+        [
+          "way",
+          100,
+          "outer"
+        ],
+        [
+          "way",
+          101,
+          "outer"
+        ],
+        [
+          "way",
+          102,
+          "inner"
+        ],
+        [
+          "way",
+          103,
+          "inner"
+        ],
+        [
+          "way",
+          111,
+          "inner"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "name": "Relation 213"
+      }
+    }
+  ]
+}

@@ -1,0 +1,400 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "lon": 10.0,
+      "lat": 50.0,
+      "tags": {
+        "value": "12",
+        "name": "Value 1"
+      }
+    },
+    {
+      "id": 2,
+      "lon": 10.0001,
+      "lat": 50.0001,
+      "tags": {
+        "value": "012",
+        "name": "Value 2"
+      }
+    },
+    {
+      "id": 3,
+      "lon": 10.0002,
+      "lat": 50.0002,
+      "tags": {
+        "value": "+12",
+        "name": "Value 3"
+      }
+    },
+    {
+      "id": 4,
+      "lon": 10.0003,
+      "lat": 50.0003,
+      "tags": {
+        "value": " 12",
+        "name": "Value 4"
+      }
+    },
+    {
+      "id": 5,
+      "lon": 10.0004,
+      "lat": 50.0004,
+      "tags": {
+        "value": "12 ",
+        "name": "Value 5"
+      }
+    },
+    {
+      "id": 6,
+      "lon": 10.0005,
+      "lat": 50.0005,
+      "tags": {
+        "value": "12m",
+        "name": "Value 6"
+      }
+    },
+    {
+      "id": 7,
+      "lon": 10.0006,
+      "lat": 50.0006,
+      "tags": {
+        "value": "12 m",
+        "name": "Value 7"
+      }
+    },
+    {
+      "id": 8,
+      "lon": 10.0007,
+      "lat": 50.0007,
+      "tags": {
+        "value": "12.0",
+        "name": "Value 8"
+      }
+    },
+    {
+      "id": 9,
+      "lon": 10.0008,
+      "lat": 50.0008,
+      "tags": {
+        "value": "12.000",
+        "name": "Value 9"
+      }
+    },
+    {
+      "id": 10,
+      "lon": 10.0009,
+      "lat": 50.0009,
+      "tags": {
+        "value": "1.2e1",
+        "name": "Value 10"
+      }
+    },
+    {
+      "id": 11,
+      "lon": 10.001,
+      "lat": 50.001,
+      "tags": {
+        "value": "1e3",
+        "name": "Value 11"
+      }
+    },
+    {
+      "id": 12,
+      "lon": 10.0011,
+      "lat": 50.0011,
+      "tags": {
+        "value": "-0",
+        "name": "Value 12"
+      }
+    },
+    {
+      "id": 13,
+      "lon": 10.0012,
+      "lat": 50.0012,
+      "tags": {
+        "value": "0",
+        "name": "Value 13"
+      }
+    },
+    {
+      "id": 14,
+      "lon": 10.0013,
+      "lat": 50.0013,
+      "tags": {
+        "value": "no",
+        "name": "Value 14"
+      }
+    },
+    {
+      "id": 15,
+      "lon": 10.0014,
+      "lat": 50.0014,
+      "tags": {
+        "value": "yes",
+        "name": "Value 15"
+      }
+    },
+    {
+      "id": 16,
+      "lon": 10.0015,
+      "lat": 50.0015,
+      "tags": {
+        "value": "",
+        "name": "Value 16"
+      }
+    },
+    {
+      "id": 17,
+      "lon": 10.0016,
+      "lat": 50.0016,
+      "tags": {
+        "value": "NaN",
+        "name": "Value 17"
+      }
+    },
+    {
+      "id": 18,
+      "lon": 10.0017,
+      "lat": 50.0017,
+      "tags": {
+        "value": "Infinity",
+        "name": "Value 18"
+      }
+    },
+    {
+      "id": 19,
+      "lon": 10.0018,
+      "lat": 50.0018,
+      "tags": {
+        "value": "-Infinity",
+        "name": "Value 19"
+      }
+    },
+    {
+      "id": 20,
+      "lon": 10.0019,
+      "lat": 50.0019,
+      "tags": {
+        "value": "12,5",
+        "name": "Value 20"
+      }
+    },
+    {
+      "id": 21,
+      "lon": 10.002,
+      "lat": 50.002,
+      "tags": {
+        "value": ".5",
+        "name": "Value 21"
+      }
+    },
+    {
+      "id": 22,
+      "lon": 10.0021,
+      "lat": 50.0021,
+      "tags": {
+        "value": "-.5",
+        "name": "Value 22"
+      }
+    },
+    {
+      "id": 23,
+      "lon": 10.0022,
+      "lat": 50.0022,
+      "tags": {
+        "value": "5.",
+        "name": "Value 23"
+      }
+    },
+    {
+      "id": 24,
+      "lon": 10.0023,
+      "lat": 50.0023,
+      "tags": {
+        "value": "\t12",
+        "name": "Value 24"
+      }
+    },
+    {
+      "id": 25,
+      "lon": 10.0024,
+      "lat": 50.0024,
+      "tags": {
+        "value": "\n12",
+        "name": "Value 25"
+      }
+    },
+    {
+      "id": 26,
+      "lon": 10.0025,
+      "lat": 50.0025,
+      "tags": {
+        "value": "0x10",
+        "name": "Value 26"
+      }
+    },
+    {
+      "id": 27,
+      "lon": 10.0026,
+      "lat": 50.0026,
+      "tags": {
+        "value": "-257",
+        "name": "Value 27"
+      }
+    },
+    {
+      "id": 28,
+      "lon": 10.0027,
+      "lat": 50.0027,
+      "tags": {
+        "value": "1073741568",
+        "name": "Value 28"
+      }
+    },
+    {
+      "id": 29,
+      "lon": 10.0028,
+      "lat": 50.0028,
+      "tags": {
+        "value": "9007199254740993",
+        "name": "Value 29"
+      }
+    },
+    {
+      "id": 30,
+      "lon": 10.0029,
+      "lat": 50.0029,
+      "tags": {
+        "value": "a\"b\\c",
+        "name": "Value 30"
+      }
+    },
+    {
+      "id": 31,
+      "lon": 10.003,
+      "lat": 50.003,
+      "tags": {
+        "value": "東京",
+        "name": "Value 31"
+      }
+    },
+    {
+      "id": 32,
+      "lon": 10.0031,
+      "lat": 50.0031,
+      "tags": {
+        "value": "abc",
+        "name": "Value 32"
+      }
+    },
+    {
+      "id": 33,
+      "lon": 10.0032,
+      "lat": 50.0032,
+      "tags": {
+        "value": "a*b",
+        "name": "Value 33"
+      }
+    },
+    {
+      "id": 34,
+      "lon": 10.0033,
+      "lat": 50.0033,
+      "tags": {
+        "value": "a\nb",
+        "name": "Value 34"
+      }
+    },
+    {
+      "id": 35,
+      "lon": 10.0034,
+      "lat": 50.0034,
+      "tags": {
+        "value": "-1.5",
+        "name": "Value 35"
+      }
+    },
+    {
+      "id": 36,
+      "lon": 10.0035,
+      "lat": 50.0035,
+      "tags": {
+        "value": "0.0001",
+        "name": "Value 36"
+      }
+    },
+    {
+      "id": 37,
+      "lon": 10.0036,
+      "lat": 50.0036,
+      "tags": {
+        "value": "-0.001",
+        "name": "Value 37"
+      }
+    },
+    {
+      "id": 38,
+      "lon": 10.0037,
+      "lat": 50.0037,
+      "tags": {
+        "value": "1.2345",
+        "name": "Value 38"
+      }
+    },
+    {
+      "id": 39,
+      "lon": 10.0038,
+      "lat": 50.0038,
+      "tags": {
+        "value": "1.2340",
+        "name": "Value 39"
+      }
+    },
+    {
+      "id": 40,
+      "lon": 10.0039,
+      "lat": 50.0039,
+      "tags": {
+        "value": "-256.0",
+        "name": "Value 40"
+      }
+    },
+    {
+      "id": 41,
+      "lon": 10.004,
+      "lat": 50.004,
+      "tags": {
+        "value": "1000000000000000000000000000000000000000",
+        "name": "Value 41"
+      }
+    }
+  ],
+  "ways": [
+    {
+      "id": 100,
+      "nodes": [
+        1,
+        2
+      ],
+      "tags": {
+        "highway": "path"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "id": 200,
+      "members": [
+        [
+          "way",
+          100,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "route"
+      }
+    }
+  ]
+}

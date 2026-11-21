@@ -1,0 +1,95 @@
+[workspace]
+members = ["cli"]
+default-members = ["."]
+resolver = "3"
+
+[workspace.package]
+version = "0.2.0"
+rust-version = "1.85.0"
+homepage = "https://regol.org"
+repository = "https://github.com/regol-gis/regol"
+license = "Apache-2.0"
+keywords = ["openstreetmap", "geodesk", "gol", "gis", "geospatial"]
+
+[package]
+name = "regol"
+version.workspace = true
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["science::geo", "parser-implementations"]
+readme = "src/README.md"
+documentation = "https://docs.rs/regol"
+description = "Independent GeoDesk GOL 2.0 reader and OSM PBF builder"
+
+include = [
+    "/src/**", "/examples/**", "/tests/*.rs", "/tests/fixtures/**",
+    "/docs/COMPATIBILITY.md", "/docs/FORMAT.md", "/docs/PROVENANCE.md", "/docs/VALIDATION.md",
+    "/LICENSE",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+once_cell = "1"
+anyhow = { version = "1", optional = true }
+bytes = { version = "1", optional = true }
+crc32c = "0.6"
+geo = { version = "0.31", default-features = false }
+flate2 = { version = "1", optional = true }
+getrandom = { version = "0.3", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", default-features = false, optional = true }
+memmap2 = { version = "0.9", optional = true }
+prost = { version = "0.13", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+rayon = { version = "1.12", optional = true }
+regex = "1"
+rstar = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+sha2 = { version = "0.10", optional = true }
+tempfile = { version = "3", default-features = false, optional = true }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "time"], optional = true }
+uom = { version = "0.38", default-features = false, features = ["autoconvert", "f64", "si", "std"] }
+ureq = { version = "3.5.2", default-features = false, features = ["native-tls-no-default"], optional = true }
+
+[features]
+default = ["parallel"]
+http = [
+    "dep:bytes", "dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls",
+    "dep:rustls-native-certs", "dep:tokio", "dep:ureq",
+]
+build = [
+    "dep:anyhow", "dep:flate2", "dep:getrandom",
+    "dep:prost", "dep:tempfile",
+]
+mmap = ["dep:memmap2", "dep:libc"]
+parallel = ["dep:rayon"]
+way-checkpoints = ["dep:sha2"]
+experimental-tag-sidecars = ["mmap", "dep:tempfile"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1", features = ["time", "fs", "use-libc"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[[example]]
+name = "http_ranges"
+required-features = ["http", "parallel"]

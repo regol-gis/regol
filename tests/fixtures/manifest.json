@@ -1,0 +1,209 @@
+{
+  "producer": "gol 2.0.0",
+  "executable_sha256": "4c0f4df89008397914702bbdee8866ca67d27c35e118dc2f8862b01e8c4b21e0",
+  "release": "https://github.com/clarisma/geodesk-gol/releases/tag/v2.0.0",
+  "input": "basic.osm.pbf",
+  "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+  "data_license": "Apache-2.0; original synthetic data, no OSM extracts",
+  "variants": {
+    "basic": {
+      "input": "basic.osm.pbf",
+      "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+      "options": [],
+      "sha256": "1fad821dafe4431e39127f3599b956cbc096b5afa471b5ba0a2379a3ee5a6e09",
+      "oracle_sha256": "20752c60e34e078ef5f5c886be3b160b2e6034b14e6f0a982294c91c97ddab9e",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "03516a288d87349f81beb0b55ea8b4c0ba3bef21e451dad13307f0944bad3084",
+      "expected_input_sha256": "727a98d544e2d76b096760537bcf8a7a437d3378b2c2632819ce5f05771e2b36"
+    },
+    "global": {
+      "input": "basic.osm.pbf",
+      "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+      "options": [
+        "--min-string-usage",
+        "1"
+      ],
+      "sha256": "9204dbd0232ee9c77c20129edb7c2f035718e05026d17adcb5a9990eff96af43",
+      "oracle_sha256": "20752c60e34e078ef5f5c886be3b160b2e6034b14e6f0a982294c91c97ddab9e",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "03516a288d87349f81beb0b55ea8b4c0ba3bef21e451dad13307f0944bad3084",
+      "expected_input_sha256": "727a98d544e2d76b096760537bcf8a7a437d3378b2c2632819ce5f05771e2b36"
+    },
+    "tiled": {
+      "input": "basic.osm.pbf",
+      "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+      "options": [
+        "--min-tile-density",
+        "1",
+        "--rtree-branch-size",
+        "4"
+      ],
+      "sha256": "e4064ecfd1a59a154991ef3342f312105f3fb4b2bea8e0b1743691e7ef429d48",
+      "oracle_sha256": "85b5cb29f160865365f1fdea79f0ad0288e872c14357d02919cd5bcf75494cba",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "03516a288d87349f81beb0b55ea8b4c0ba3bef21e451dad13307f0944bad3084",
+      "expected_input_sha256": "727a98d544e2d76b096760537bcf8a7a437d3378b2c2632819ce5f05771e2b36"
+    },
+    "ids": {
+      "input": "basic.osm.pbf",
+      "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+      "options": [
+        "-w"
+      ],
+      "sha256": "ebdc705ac3b1daef4d16c0cd61fa7262a9f408746cc9799d119ca5dfe3cf21e9",
+      "oracle_sha256": "20752c60e34e078ef5f5c886be3b160b2e6034b14e6f0a982294c91c97ddab9e",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "03516a288d87349f81beb0b55ea8b4c0ba3bef21e451dad13307f0944bad3084",
+      "expected_input_sha256": "727a98d544e2d76b096760537bcf8a7a437d3378b2c2632819ce5f05771e2b36"
+    },
+    "tiled_global": {
+      "input": "basic.osm.pbf",
+      "input_sha256": "48c2aaf88fc0d8f5433f7c3c88857e76ef26f8d222071d80613756f8db099ac0",
+      "options": [
+        "--min-tile-density",
+        "1",
+        "--min-string-usage",
+        "1",
+        "--levels",
+        "0,3,6,9,12",
+        "-w"
+      ],
+      "sha256": "4776412154b2a8107bbf851faf860148070f4a472703db1a4007bab8b9f319be",
+      "oracle_sha256": "07a63f0c9446fcc50ad9ad79acba0c8d62eebe1c402eb5c32fd91d146211978e",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "03516a288d87349f81beb0b55ea8b4c0ba3bef21e451dad13307f0944bad3084",
+      "expected_input_sha256": "727a98d544e2d76b096760537bcf8a7a437d3378b2c2632819ce5f05771e2b36"
+    },
+    "stress": {
+      "input": "stress.osm.pbf",
+      "input_sha256": "c5feb2a3e337a683607287968c2b8f4911a8a812b42d10f701fb0cd1c7ef207a",
+      "options": [
+        "--min-tile-density",
+        "10",
+        "--rtree-branch-size",
+        "4",
+        "--min-string-usage",
+        "2",
+        "-w"
+      ],
+      "sha256": "d3f00ad3afca0cf89699f831c078e2df764be47f9d5a881901c89ae7b8802658",
+      "oracle_sha256": "523a10137deb28df743e32a7ad58edb9d554f321002f3bc7d3eff2e2ffe27106",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "aa9e5c1a4433e37af00f0902da5dcceafa62d93bc9398b3bc06d409c69ebe569",
+      "expected_input_sha256": "d7ed26497c414646eb27b0d109333d85abd057327a1e2b9eb13525f65a7861c5"
+    },
+    "geometry": {
+      "input": "geometry.osm.pbf",
+      "input_sha256": "6cad22b95511bfbf6cbf79ae398bbdb307d295f27b0722b0300ace3370670551",
+      "options": [
+        "--min-tile-density",
+        "1",
+        "-w"
+      ],
+      "sha256": "5c535ac27b9b87ef8a5fe8251134d92a8284953c116c2a10e536ee94f69fceb0",
+      "oracle_sha256": "db48d670c5b6c85f3e8e042711e13f6fd42b692b5cba07c8f3bd56a30f0a9741",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "13192fd6f9821641ec57a708721feabdc64ad4837b625972b01f490d41ae6328",
+      "expected_input_sha256": "78fdbea2e8da14d71e8feb6a70cd7739e0b3a8f276e7ff3d461904dedeca60fc"
+    },
+    "query_semantics": {
+      "input": "query_semantics.osm.pbf",
+      "input_sha256": "fff5399b308afdbe61903ae57563d07e07614ee0ad297149b1c37f4b57073c02",
+      "options": [
+        "--min-string-usage",
+        "1"
+      ],
+      "sha256": "2418830d0626024ef87ea033f2ee5be321c50d45ef81a02b9a266c9bfe569767",
+      "oracle_sha256": "229d1bcb0571091c2d237a70e44890c12cef83d061d98b9007a69bf8e8163ea2",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      },
+      "queries_sha256": "0757bed95c0552217b0c1386149fb133d935f998a1bd9b41de638552a99fe108",
+      "expected_input_sha256": "8b0dc888830eadedc0be0d9aef288f0440c3e7b29f1c472f10ddb1bb5f8d8298"
+    },
+    "wide_exports": {
+      "input": "wide_exports.osm.pbf",
+      "input_sha256": "fa14e8c133eb182d48a915647d1294824cb985c1c6c7f7cf0b6425fc50b024df",
+      "options": [
+        "--min-tile-density",
+        "1",
+        "-w"
+      ],
+      "sha256": "85b09f4b2a2827b4393163503be1f8f0da6112734266acfbc25c4efdcff50924",
+      "oracle_sha256": "a1cc2e721d179549b16b8f54b29bd1ef8e6e583efb8af54a3269ef8ef7ad60ac",
+      "oracle_failures": {},
+      "queries_sha256": "5e38b7d6e99b2fd45088b5ff7b7ef86ec94ad32acebecc556fd89c3e6065bb7c",
+      "expected_input_sha256": "d7dbbac518c24bdd7c5e168bd765db45afcf4bcc727ac963243e9064975b61cd"
+    },
+    "coincident": {
+      "input": "coincident.osm.pbf",
+      "input_sha256": "6184cc6c385869361fc52e47a05c8c03fcdf327835784f34f37c5df254395ae2",
+      "options": [],
+      "sha256": "9d69930d673c4a50a52e427cd1b96876239c302cbd1da5959eaa1140f2110840",
+      "oracle_sha256": "f5b52ef8e17a535930ba8f5bb249eee4975f8786aae4df0cd9ffddc79b508545",
+      "queries_sha256": "9b8b188e93b17dd066dc8cb5c6360a879ae8fdf7bc9164931aa325d4eb18bd1f",
+      "expected_input_sha256": "e9c3914ab56f614fac0975b808851c8ce5303e06dc92ddc1d09dfb40998a43eb",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      }
+    },
+    "coincident_ids": {
+      "input": "coincident_ids.osm.pbf",
+      "input_sha256": "6184cc6c385869361fc52e47a05c8c03fcdf327835784f34f37c5df254395ae2",
+      "options": [
+        "-w"
+      ],
+      "sha256": "30d6a69a0265035dc8256d63718e2a25044b788974deeff5634535bb33e74924",
+      "oracle_sha256": "f5b52ef8e17a535930ba8f5bb249eee4975f8786aae4df0cd9ffddc79b508545",
+      "queries_sha256": "9b8b188e93b17dd066dc8cb5c6360a879ae8fdf7bc9164931aa325d4eb18bd1f",
+      "expected_input_sha256": "e9c3914ab56f614fac0975b808851c8ce5303e06dc92ddc1d09dfb40998a43eb",
+      "oracle_failures": {
+        "n,n": {
+          "returncode": -11,
+          "stderr": ""
+        }
+      }
+    }
+  }
+}

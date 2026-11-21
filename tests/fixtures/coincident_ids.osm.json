@@ -1,0 +1,259 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "lon": 0.001,
+      "lat": 0.001,
+      "tags": {
+        "amenity": "cafe",
+        "name": "Café 東京",
+        "capacity": "12",
+        "height": "3.25",
+        "empty": "",
+        "negative": "-256",
+        "large": "70000",
+        "odd:key": "0012"
+      }
+    },
+    {
+      "id": 2,
+      "lon": 0.002,
+      "lat": 0.001,
+      "tags": {}
+    },
+    {
+      "id": 3,
+      "lon": 0.002,
+      "lat": 0.002,
+      "tags": {}
+    },
+    {
+      "id": 4,
+      "lon": 0.001,
+      "lat": 0.002,
+      "tags": {}
+    },
+    {
+      "id": 5,
+      "lon": -0.001,
+      "lat": -0.001,
+      "tags": {
+        "name": "West",
+        "amenity": "bench"
+      }
+    },
+    {
+      "id": 6,
+      "lon": 0.0012,
+      "lat": 0.0012,
+      "tags": {}
+    },
+    {
+      "id": 7,
+      "lon": 0.0018,
+      "lat": 0.0012,
+      "tags": {}
+    },
+    {
+      "id": 8,
+      "lon": 0.0018,
+      "lat": 0.0018,
+      "tags": {}
+    },
+    {
+      "id": 9,
+      "lon": 0.0012,
+      "lat": 0.0018,
+      "tags": {}
+    },
+    {
+      "id": 100,
+      "lon": 10.0,
+      "lat": 50.0,
+      "tags": {
+        "name": "Node 100"
+      }
+    },
+    {
+      "id": 101,
+      "lon": 10.01,
+      "lat": 50.01,
+      "tags": {
+        "name": "Node 101"
+      }
+    },
+    {
+      "id": 102,
+      "lon": 10.0,
+      "lat": 50.0,
+      "tags": {
+        "name": "Node 102"
+      }
+    }
+  ],
+  "ways": [
+    {
+      "id": 10,
+      "nodes": [
+        5,
+        1,
+        2,
+        3
+      ],
+      "tags": {
+        "highway": "residential",
+        "name": "Test Road"
+      }
+    },
+    {
+      "id": 11,
+      "nodes": [
+        1,
+        2,
+        3,
+        4,
+        1
+      ],
+      "tags": {
+        "building": "yes",
+        "name": "Square"
+      }
+    },
+    {
+      "id": 12,
+      "nodes": [
+        6,
+        7,
+        8,
+        9,
+        6
+      ],
+      "tags": {}
+    },
+    {
+      "id": 110,
+      "nodes": [
+        100,
+        101
+      ],
+      "tags": {
+        "highway": "path"
+      }
+    },
+    {
+      "id": 111,
+      "nodes": [
+        102,
+        101
+      ],
+      "tags": {
+        "highway": "path"
+      }
+    },
+    {
+      "id": 112,
+      "nodes": [
+        100,
+        102,
+        101
+      ],
+      "tags": {
+        "highway": "path"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "id": 20,
+      "members": [
+        [
+          "way",
+          11,
+          "outer"
+        ],
+        [
+          "way",
+          12,
+          "inner"
+        ]
+      ],
+      "tags": {
+        "type": "multipolygon",
+        "landuse": "grass",
+        "name": "Courtyard"
+      }
+    },
+    {
+      "id": 21,
+      "members": [
+        [
+          "node",
+          5,
+          "stop"
+        ],
+        [
+          "way",
+          10,
+          ""
+        ],
+        [
+          "node",
+          1,
+          "custom rôle"
+        ],
+        [
+          "node",
+          5,
+          "stop"
+        ]
+      ],
+      "tags": {
+        "type": "route",
+        "route": "bus",
+        "name": "Test Route"
+      }
+    },
+    {
+      "id": 22,
+      "members": [
+        [
+          "relation",
+          21,
+          "part"
+        ],
+        [
+          "node",
+          1,
+          "label"
+        ]
+      ],
+      "tags": {
+        "type": "collection",
+        "name": "Nested"
+      }
+    },
+    {
+      "id": 120,
+      "members": [
+        [
+          "way",
+          110,
+          ""
+        ],
+        [
+          "way",
+          111,
+          ""
+        ],
+        [
+          "way",
+          112,
+          ""
+        ]
+      ],
+      "tags": {
+        "type": "route"
+      }
+    }
+  ]
+}

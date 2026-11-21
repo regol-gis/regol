@@ -1,0 +1,61 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain components
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+      - name: Check formatting, lints and API documentation
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+          RUSTDOCFLAGS='-D warnings -D missing-docs' cargo doc --locked -p regol --lib --all-features --no-deps
+      - name: Test library, builder and CLI
+        run: |
+          cargo test --locked --workspace --all-features --lib --bins --tests
+          cargo test --locked --workspace --all-features --doc
+          cargo run --locked --all-features --example spatial_filters_bench -- 1
+          cargo test --locked -p regol --no-default-features --lib --tests
+      - name: Check reader and CLI portability
+        # The QUIC TLS provider compiles C for both foreign targets.
+        env:
+          CC_aarch64_apple_darwin: zig cc
+          AR_aarch64_apple_darwin: zig ar
+          CFLAGS_aarch64_apple_darwin: -target aarch64-macos
+          CC_x86_64_pc_windows_gnu: zig cc
+          AR_x86_64_pc_windows_gnu: zig ar
+          CFLAGS_x86_64_pc_windows_gnu: -target x86_64-windows-gnu
+        run: |
+          python3 -m pip install --no-deps --target /tmp/regol-cross ziglang==0.14.1
+          export PATH="/tmp/regol-cross/ziglang:$PATH"
+          rustup target add aarch64-apple-darwin x86_64-pc-windows-gnu
+          cargo check --locked --workspace --features mmap --target aarch64-apple-darwin --target x86_64-pc-windows-gnu
+      - name: Check minimum supported Rust
+        run: |
+          msrv=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')
+          rustup toolchain install "$msrv" --profile minimal
+          cargo "+$msrv" check --locked --workspace --all-targets --features mmap,way-checkpoints,experimental-tag-sidecars
+          cargo "+$msrv" check --locked -p regol --features build --all-targets
+      - name: Check fixtures, documentation and project tools
+        run: |
+          cargo fetch --locked
+          python3 tools/check_licenses.py
+          python3 tools/check_fixtures.py
+          python3 tools/release.py --check
