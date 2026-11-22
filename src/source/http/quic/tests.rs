@@ -1,6 +1,6 @@
 use super::*;
 use crate::source::{HttpSource, Source, http::Transport};
-use rustls::pki_types::PrivatePkcs8KeyDer;
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpListener,
@@ -26,18 +26,16 @@ fn origin<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let key = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
-    let der = key.cert.der().clone();
+    // Public test identity for the loopback origin. Only these clients trust it.
+    let der = CertificateDer::from(include_bytes!("localhost-cert.der").as_slice());
+    let key = PrivatePkcs8KeyDer::from(include_bytes!("localhost-key.der").as_slice());
     let tls = rustls::ServerConfig::builder_with_provider(
         rustls::crypto::ring::default_provider().into(),
     )
     .with_protocol_versions(&[&rustls::version::TLS13])
     .unwrap()
     .with_no_client_auth()
-    .with_single_cert(
-        vec![der.clone()],
-        PrivatePkcs8KeyDer::from(key.signing_key.serialize_der()).into(),
-    )
+    .with_single_cert(vec![der.clone()], key.into())
     .unwrap();
     let mut h3_tls = tls.clone();
     h3_tls.alpn_protocols = vec![b"h3".to_vec()];

@@ -1,0 +1,2 @@
+# Compiler wheel for the Linux x86-64 portability check.
+ziglang==0.14.1 --hash=sha256:6eb9d4d759b292c83810dbee2e9e8e3fbfbf01d864e6e9811bae711fd74e1c2f

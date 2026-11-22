@@ -21,6 +21,15 @@ version and cross-compiles the reader and CLI with mmap support for
 macOS ARM64 and Windows x86-64. The manual **Fuzz** workflow exercises the
 reader and query parser with the sanitizer harness in `fuzz/`.
 
+The **Security** workflow checks both Cargo lockfiles against RustSec on pull
+requests, pushes to `main`, and weekly. To run the same checks locally:
+
+```sh
+cargo install cargo-audit --version 0.23.0 --locked
+cargo audit --file Cargo.lock
+cargo audit --no-fetch --file fuzz/Cargo.lock
+```
+
 ## Targeted tests
 
 The `http` feature tests start loopback TCP and UDP servers with a test certificate.

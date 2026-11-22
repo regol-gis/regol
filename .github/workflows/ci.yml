@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust toolchain components
@@ -43,7 +43,7 @@ jobs:
           AR_x86_64_pc_windows_gnu: zig ar
           CFLAGS_x86_64_pc_windows_gnu: -target x86_64-windows-gnu
         run: |
-          python3 -m pip install --no-deps --target /tmp/regol-cross ziglang==0.14.1
+          python3 -m pip install --no-deps --only-binary=:all: --require-hashes --target /tmp/regol-cross -r .github/requirements.txt
           export PATH="/tmp/regol-cross/ziglang:$PATH"
           rustup target add aarch64-apple-darwin x86_64-pc-windows-gnu
           cargo check --locked --workspace --features mmap --target aarch64-apple-darwin --target x86_64-pc-windows-gnu
