@@ -46,15 +46,16 @@ pub(super) fn normalize_collection(geometry: Geometry) -> Geometry {
 
     let area = MultiPolygon(components.polygons);
     let lines = MultiLineString(components.lines);
-    if area.0.is_empty() && !components.points.is_empty() {
-        if let [line] = lines.0.as_slice() {
-            let edges = edge_index::build(line.lines());
-            components.points.retain(|point| {
-                !edges
-                    .locate_in_envelope_intersecting(&AABB::from_point([point.x(), point.y()]))
-                    .any(|edge| edge.line.intersects(&point.0))
-            });
-        }
+    if area.0.is_empty()
+        && !components.points.is_empty()
+        && let [line] = lines.0.as_slice()
+    {
+        let edges = edge_index::build(line.lines());
+        components.points.retain(|point| {
+            !edges
+                .locate_in_envelope_intersecting(AABB::from_point([point.x(), point.y()]))
+                .any(|edge| edge.line.intersects(&point.0))
+        });
     }
     components
         .points

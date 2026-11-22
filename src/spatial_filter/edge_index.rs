@@ -38,7 +38,7 @@ pub(super) fn intersections(
 ) -> impl Iterator<Item = (usize, usize, LineIntersection<f64>)> + '_ {
     edges.iter().flat_map(|left| {
         edges
-            .locate_in_envelope_intersecting(&left.envelope())
+            .locate_in_envelope_intersecting(left.envelope())
             .filter_map(move |right| {
                 if left.index < right.index {
                     line_intersection(left.line, right.line)

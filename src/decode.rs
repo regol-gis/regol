@@ -248,13 +248,11 @@ impl<S: Source> Source for ReadWindow<'_, S> {
         if let Some(start) = offset
             .checked_sub(self.base)
             .and_then(|n| usize::try_from(n).ok())
-        {
-            if let Some(slice) = start
+            && let Some(slice) = start
                 .checked_add(len)
                 .and_then(|end| self.bytes.get(start..end))
-            {
-                return Ok(Some(slice));
-            }
+        {
+            return Ok(Some(slice));
         }
         self.source.view(offset, len)
     }

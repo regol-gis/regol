@@ -192,10 +192,10 @@ impl SpatialFilter {
     /// predicates before geometry assembly. Geometry and source errors from
     /// the remaining candidates are returned to the caller.
     pub fn matches<S: Source>(&self, candidate: Feature<'_, S>) -> Result<bool> {
-        if let Some(bounds) = self.candidate_bounds() {
-            if !bounds.intersects(candidate.bounds()?) {
-                return Ok(false);
-            }
+        if let Some(bounds) = self.candidate_bounds()
+            && !bounds.intersects(candidate.bounds()?)
+        {
+            return Ok(false);
         }
         self.matches_candidate(candidate)
     }
@@ -283,18 +283,18 @@ fn topology_matches(
 ) -> Result<bool> {
     match predicate {
         SpatialPredicate::Intersects => {
-            if let geo::Geometry::Point(point) = candidate {
-                if let Some(prepared) = prepared_operand {
-                    return Ok(prepared.locate_point(point.0) != CoordPos::Outside);
-                }
+            if let geo::Geometry::Point(point) = candidate
+                && let Some(prepared) = prepared_operand
+            {
+                return Ok(prepared.locate_point(point.0) != CoordPos::Outside);
             }
             return Ok(candidate.intersects(operand));
         }
         SpatialPredicate::Disjoint => {
-            if let geo::Geometry::Point(point) = candidate {
-                if let Some(prepared) = prepared_operand {
-                    return Ok(prepared.locate_point(point.0) == CoordPos::Outside);
-                }
+            if let geo::Geometry::Point(point) = candidate
+                && let Some(prepared) = prepared_operand
+            {
+                return Ok(prepared.locate_point(point.0) == CoordPos::Outside);
             }
             return Ok(!candidate.intersects(operand));
         }

@@ -760,16 +760,16 @@ impl QueryExecutor {
                                 // At most one initial single-feature batch makes the
                                 // first match visible without waiting for a full batch.
                                 // Check once per partition, outside the hot result loop.
-                                if !first_sent.load(Ordering::Relaxed) {
-                                    if let Some(feature) = query.next_in(features, &mut step) {
-                                        let feature = feature?;
-                                        if !first_sent.swap(true, Ordering::Relaxed) {
-                                            if !send_batch(vec![feature]) {
-                                                return Ok(false);
-                                            }
-                                        } else {
-                                            batch.push(feature);
+                                if !first_sent.load(Ordering::Relaxed)
+                                    && let Some(feature) = query.next_in(features, &mut step)
+                                {
+                                    let feature = feature?;
+                                    if !first_sent.swap(true, Ordering::Relaxed) {
+                                        if !send_batch(vec![feature]) {
+                                            return Ok(false);
                                         }
+                                    } else {
+                                        batch.push(feature);
                                     }
                                 }
                                 // Many tiles produce just a few matches. Start with a
@@ -919,10 +919,9 @@ impl<'a, S> QueryResults<'a, '_, S> {
                         self.done = true;
                         if let (Some(observer), Some(budget)) =
                             (self.observation.take(), &self.budget)
+                            && let Some(steps) = budget.completed_steps(observer.total_limit)
                         {
-                            if let Some(steps) = budget.completed_steps(observer.total_limit) {
-                                (observer.finish)(steps, observer.seen);
-                            }
+                            (observer.finish)(steps, observer.seen);
                         }
                         return Ok(None);
                     }

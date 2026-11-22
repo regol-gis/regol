@@ -67,11 +67,11 @@ pub(super) fn detect_available_memory() -> Option<u64> {
         }
 
         // cgroup v1 fallback.
-        if let Some(limit) = read_u64("/sys/fs/cgroup/memory/memory.limit_in_bytes") {
-            if limit < (1u64 << 60) {
-                let usage = read_u64("/sys/fs/cgroup/memory/memory.usage_in_bytes").unwrap_or(0);
-                consider(limit.saturating_sub(usage));
-            }
+        if let Some(limit) = read_u64("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+            && limit < (1u64 << 60)
+        {
+            let usage = read_u64("/sys/fs/cgroup/memory/memory.usage_in_bytes").unwrap_or(0);
+            consider(limit.saturating_sub(usage));
         }
 
         best

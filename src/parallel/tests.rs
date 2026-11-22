@@ -366,7 +366,7 @@ fn deferred_headers_respect_cancellation_and_the_pool_remains_usable() -> Result
         fn read_exact_at(&self, offset: u64, out: &mut [u8]) -> io::Result<()> {
             // Payloads begin on 4 KiB boundaries. Slow these reads so the
             // consumer can cancel while other partitions are still pending.
-            if offset % 4096 == 0 && out.len() == 24 {
+            if offset.is_multiple_of(4096) && out.len() == 24 {
                 self.headers.fetch_add(1, Ordering::SeqCst);
                 if self.cancelled.load(Ordering::SeqCst) {
                     self.late_headers.fetch_add(1, Ordering::SeqCst);

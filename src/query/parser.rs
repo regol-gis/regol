@@ -106,13 +106,11 @@ impl Parser<'_> {
         self.space();
         let quoted = matches!(self.peek(), Some('\'' | '"'));
         let token = self.token()?;
-        if !quoted {
-            if let Ok(number) = token.parse::<f64>() {
-                if !number.is_finite() {
-                    return Err(self.error("expected finite number"));
-                }
-                return Ok(Literal::Number(number));
+        if !quoted && let Ok(number) = token.parse::<f64>() {
+            if !number.is_finite() {
+                return Err(self.error("expected finite number"));
             }
+            return Ok(Literal::Number(number));
         }
         if token.trim_matches('*').contains('*') {
             return Err(

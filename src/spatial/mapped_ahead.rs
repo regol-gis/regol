@@ -46,7 +46,7 @@ static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 struct Permit;
 
 impl Permit {
-    #[allow(deprecated)] // Keep fetch_update for Rust 1.85 MSRV.
+    #[allow(deprecated)] // Keep fetch_update for the minimum supported Rust version.
     fn acquire() -> Option<Self> {
         IN_FLIGHT
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
@@ -156,7 +156,7 @@ fn scan_tile(job: &Job, scan: &Scan, mapping: &WorkerMap, library: &Library<Mapp
                 if !live() {
                     return Ok(false);
                 }
-                #[allow(deprecated)] // Keep fetch_update for Rust 1.85 MSRV.
+                #[allow(deprecated)] // Keep fetch_update for the minimum supported Rust version.
                 let Ok(remaining) = scan.remaining_steps.fetch_update(
                     Ordering::Relaxed,
                     Ordering::Relaxed,

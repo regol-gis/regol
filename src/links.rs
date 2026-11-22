@@ -361,11 +361,12 @@ impl<'a, S: Source> WayNodes<'a, S> {
             id = Some(read_original_way_node_id(self.owner, p, &mut self.id)?);
             self.ids_remaining -= 1;
         }
-        if let Some(node) = self.next_feature {
-            if node.point()? == Some(point) && id.is_none_or(|id| id == node.id().id) {
-                id = Some(node.id().id);
-                self.next_feature = self.feature_nodes.next().transpose()?;
-            }
+        if let Some(node) = self.next_feature
+            && node.point()? == Some(point)
+            && id.is_none_or(|id| id == node.id().id)
+        {
+            id = Some(node.id().id);
+            self.next_feature = self.feature_nodes.next().transpose()?;
         }
         let node = WayNode { point, id };
         self.first.get_or_insert(node);

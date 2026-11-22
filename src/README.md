@@ -107,7 +107,7 @@ call `Library::check_integrity`.
 | `way-checkpoints` | Index long ways for repeated vertex and original-node-ID lookups. Original IDs must be present in the GOL. |
 | `experimental-tag-sidecars` | Build and query auxiliary tag indexes on Unix. Requires `mmap` and immutable backing files. |
 
-The reader and builder require Rust 1.85 or later. The `regol` CLI (covering
+The reader and builder require Rust 1.88 or later. The `regol` CLI (covering
 `build`, `query`, `info`, and `check`) is distributed separately as `regol-cli`
 (`cargo install --locked regol-cli`). The builder stages and encodes objects in
 parallel in memory and atomically publishes the finished GOL file beside the

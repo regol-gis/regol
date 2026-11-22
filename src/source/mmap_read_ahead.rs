@@ -140,12 +140,11 @@ impl WorkerMap {
         if !self.active() {
             return;
         }
-        if let Ok(guard) = self.library.read() {
-            if self.active() {
-                if let Some(library) = guard.as_ref() {
-                    run(library);
-                }
-            }
+        if let Ok(guard) = self.library.read()
+            && self.active()
+            && let Some(library) = guard.as_ref()
+        {
+            run(library);
         }
     }
 }

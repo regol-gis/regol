@@ -319,10 +319,10 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
         UNORDERED_PREFIX_STEPS,
         WorkerBuf::default,
         |mut acc, feature| {
-            if let Some(area) = area {
-                if !area.intersects_feature(feature)? {
-                    return Ok(acc);
-                }
+            if let Some(area) = area
+                && !area.intersects_feature(feature)?
+            {
+                return Ok(acc);
             }
             let first_in_buf = acc.buf.is_empty();
             if let Err(err) = encoder.encode(&mut acc.buf, feature, first_in_buf, &mut acc.scratch)
