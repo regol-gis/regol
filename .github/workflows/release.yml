@@ -8,13 +8,13 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.number }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -27,8 +27,8 @@ jobs:
         run: |
           set -eu
           if [ "$GITHUB_EVENT_NAME" = push ]; then
-            version=$(python3 tools/release.py --check --tag "$GITHUB_REF_NAME")
             git merge-base --is-ancestor HEAD refs/remotes/origin/main
+            version=$(python3 tools/release.py --check --tag "$GITHUB_REF_NAME")
           else
             version=$(python3 tools/release.py --check)
           fi
@@ -39,25 +39,40 @@ jobs:
           cargo test --locked --workspace --all-features --doc
       - name: Build and smoke-test release assets
         run: python3 tools/release.py
-      - name: Upload rehearsal artifacts
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v7
+      - name: Upload tested release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: regol-release-rehearsal
+          name: ${{ github.event_name == 'workflow_dispatch' && 'regol-release-rehearsal' || 'regol-release' }}
           path: target/dist/v${{ steps.version.outputs.number }}/
           if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: regol-release
+          path: assets
       - name: Publish tagged release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -eu
-          version="${{ steps.version.outputs.number }}"
+          gh api -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GH_REPO/contents/docs/releases/$VERSION.md?ref=$GITHUB_SHA" > notes.md
           flags=(
-            --title "regol $version"
-            --notes-file "docs/releases/${version}.md"
+            --verify-tag
+            --title "regol $VERSION"
+            --notes-file notes.md
           )
-          if [[ "$version" == *-rc.* ]]; then
+          if [[ "$VERSION" == *-rc.* ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" "${flags[@]}" target/dist/v${version}/*
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" assets/*

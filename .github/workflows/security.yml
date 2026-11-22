@@ -1,0 +1,27 @@
+name: Security
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit Cargo lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.23.0 --locked
+      - name: Check the workspace and fuzz harness against RustSec
+        run: |
+          cargo audit --file Cargo.lock
+          cargo audit --no-fetch --file fuzz/Cargo.lock
