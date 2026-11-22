@@ -27,4 +27,8 @@ for variant in ('basic', 'ids', 'tiled'):
 # The writer conformance test compares these two files directly.
 check('builder.osm.pbf', '9f0bdcd1e230a93f6720e90f1c13786bd3e41b60d880408ee1f990097a35c035')
 check('builder.gol', '08529d904e7b188236fb5cd587b4a9a326879918a4b5f907dc4527c91ccdc0f5')
-print(f"Verified {len(manifest['variants'])} fixture variants with their independent inputs/oracles and the builder conformance pair")
+# Reference GOB snapshots exported from the pinned GOL fixtures.
+check('basic.gob', '0cec72174ca0809d595aeaeb40231379ba19c2f54e611333a4c366ff0f79efb7')
+check('geometry.gob', 'fef0f27eeb5a5bd8e6c49a81fb5c2666c9435f5180c39d90d003fd29ff2f2a7b')
+check('tiled_global.gob', 'a1111306e184a6b45439de24cc9af11a4037e2286be29ad7db8fcfee27e892ed')
+print(f"Verified {len(manifest['variants'])} fixture variants with their independent inputs/oracles, the builder conformance pair and three GOB snapshots")

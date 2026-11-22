@@ -44,6 +44,17 @@ validation, caching and worker scheduling, and
 `cargo test --locked -p regol --features http --lib source::http` for QUIC
 multiplexing, cancellation and TLS fallback.
 
+The GOB tests run offline. They compare queries and relationships with
+independently produced GOL fixtures, follow a relation beyond the initial
+viewport, and reopen partial and complete serialized stores.
+
+```sh
+cargo test --locked -p regol --no-default-features --features gob --test gob
+cargo test --locked -p regol --no-default-features --features gob --lib gob::
+rustup target add wasm32-unknown-unknown
+cargo check --locked -p regol --no-default-features --features gob --target wasm32-unknown-unknown
+```
+
 The allocation test checks that borrowed field traversal on the fixtures
 performs zero allocations:
 

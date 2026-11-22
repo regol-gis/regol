@@ -1125,7 +1125,7 @@ pub struct Members<'a, S> {
     role: Cow<'a, str>,
     tip: i64,
     tex: i64,
-    cached_foreign: Option<(u32, u64, u64, u64)>,
+    cached_foreign: Option<crate::links::ExportTable>,
     steps: u64,
 }
 impl<'a, S: Source> Members<'a, S> {
@@ -1203,27 +1203,9 @@ impl<'a, S: Source> Members<'a, S> {
         let feature = if foreign {
             let tip = u32::try_from(self.tip)
                 .map_err(|_| Error::invalid(start, "invalid foreign tile"))?;
-            let (tile, tile_end, exports) = match self.cached_foreign {
-                Some((cached_tip, tile, tile_end, exports)) if cached_tip == tip => {
-                    (tile, tile_end, exports)
-                }
-                _ => {
-                    let tile = lib.tile_page(tip)?;
-                    let tile_end = tile + 4 + u64::from(s.u32(tile)? & 0x3fff_ffff);
-                    let exports = s.relative(tile + 24, !0)?;
-                    self.cached_foreign = Some((tip, tile, tile_end, exports));
-                    (tile, tile_end, exports)
-                }
-            };
             let tex = u32::try_from(self.tex)
                 .map_err(|_| Error::invalid(start, "invalid export index"))?;
-            let entry = exports
-                .checked_add(u64::from(tex) * 4)
-                .ok_or_else(|| Error::invalid(start, "export overflow"))?;
-            if entry < tile || entry + 4 > tile_end {
-                return Err(Error::invalid(entry, "export outside tile"));
-            }
-            Feature::at(lib, s.relative(entry, !0)?, tile, tile_end)?
+            crate::links::foreign_feature(lib, &mut self.cached_foreign, tip, tex)?
         } else {
             Feature::at_source(
                 lib,

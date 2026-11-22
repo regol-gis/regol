@@ -11,6 +11,8 @@ mod error;
 mod feature;
 mod feature_set;
 mod geometry;
+#[cfg(feature = "gob")]
+pub mod gob;
 mod inspect;
 mod library;
 mod links;

@@ -44,6 +44,15 @@ are outside this read-only contract. Completed snapshots with distinct tile
 and directory generations are tested synthetically. GOL Tool 2.0.0 exposes no
 update command, so no production updater lifecycle is claimed.
 
+The optional `gob` feature imports GOB 2.0 snapshots containing complete
+tile payloads. A regional archive can omit chunks for tiles listed in its spatial directory. Imported
+tiles retain the source tileset ID, revision, export numbering and way-node
+ID setting. A query that needs an unloaded tile returns
+`Error::MissingTile(tip)`. `GobCatalog::tile(tip)` returns `None` when that
+tile is also absent from the archive. The caller can retrieve it from the
+same snapshot. Revision-delta bundles are unsupported. A serialized GOL can
+have a different index layout and traversal order from its source.
+
 By default, opening a library via the Rust API validates every global spelling.
 With `Library::with_dictionary_loading(source, limits, DictionaryLoading::OnDemand)`
 (or by default in `regol query`, which uses immutable mmap + on-demand

@@ -45,14 +45,15 @@ jobs:
         run: |
           python3 -m pip install --no-deps --only-binary=:all: --require-hashes --target /tmp/regol-cross -r .github/requirements.txt
           export PATH="/tmp/regol-cross/ziglang:$PATH"
-          rustup target add aarch64-apple-darwin x86_64-pc-windows-gnu
+          rustup target add aarch64-apple-darwin x86_64-pc-windows-gnu wasm32-unknown-unknown
+          cargo check --locked -p regol --no-default-features --features gob --target wasm32-unknown-unknown
           cargo check --locked --workspace --features mmap --target aarch64-apple-darwin --target x86_64-pc-windows-gnu
       - name: Check minimum supported Rust
         run: |
           msrv=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')
           rustup toolchain install "$msrv" --profile minimal
           cargo "+$msrv" check --locked --workspace --all-targets --features mmap,way-checkpoints,experimental-tag-sidecars
-          cargo "+$msrv" check --locked -p regol --features build --all-targets
+          cargo "+$msrv" check --locked -p regol --features build,gob --all-targets
       - name: Check fixtures, documentation and project tools
         run: |
           cargo fetch --locked

@@ -54,6 +54,17 @@ memory. The opening 128 KiB read selects the range size for this handle. Use
 network requests from another thread, call `library.source().cancel_requests()`.
 This closes active QUIC streams and pooled TCP connections for every query sharing that source.
 
+With the `gob` feature, `gob::GobCatalog` maps a Geo-Object Bundle 2.0
+snapshot's tile IDs to byte ranges. Read the first 64 bytes and use
+`GobCatalog::prefix_len` to find the catalog and metadata extent. Open that
+prefix and call `tiles_in_bounds` with a projected viewport to plan the
+initial tile reads. Use `GobStore::import_tile` to load each checked chunk
+and query the resulting `Library`. A feature link can return
+`Error::MissingTile(tip)`, which lets the caller load that dependency and
+retry. The caller supplies bytes from the same archive snapshot. Native
+or browser callers can stream the loaded snapshot to a GOL file with
+`GobStore::write_gol`.
+
 ## Spatial queries and feature sets
 
 This example reads a building by its typed OSM ID and finds cafés that intersect
@@ -104,6 +115,7 @@ call `Library::check_integrity`.
 | `http` | Open URLs with HTTP/3 or pooled HTTP/1.1 range GETs using system trust roots. Linux builds use the system OpenSSL development package. |
 | `mmap` | Read from a memory-mapped file. The backing file must stay unmodified and untruncated for the lifetime of the mapping. |
 | `build` | Compile a raw or zlib-compressed OSM PBF snapshot with `build::build_pbf` using the pure-Rust multi-threaded pipeline (no C compiler or SQLite required). |
+| `gob` | Import complete tiles from a GOB 2.0 snapshot into a queryable store and write them as a GOL. |
 | `way-checkpoints` | Index long ways for repeated vertex and original-node-ID lookups. Original IDs must be present in the GOL. |
 | `experimental-tag-sidecars` | Build and query auxiliary tag indexes on Unix. Requires `mmap` and immutable backing files. |
 

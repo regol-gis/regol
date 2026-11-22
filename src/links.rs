@@ -107,6 +107,70 @@ impl<'a, S: Source> Iterator for ParentWays<'a, S> {
 }
 impl<S: Source> std::iter::FusedIterator for ParentWays<'_, S> {}
 
+/// A foreign reference names a numbered slot. Empty slots survive tile updates.
+#[derive(Clone, Copy)]
+pub(crate) struct ExportTable {
+    tip: u32,
+    tile: u64,
+    end: u64,
+    entries: u64,
+    count: u32,
+}
+
+impl ExportTable {
+    fn read(source: &impl Source, tip: u32, tile: u64) -> Result<Self> {
+        let end = tile + 4 + u64::from(source.u32(tile)? & 0x3fff_ffff);
+        if end < tile + 28 || end > source.len() {
+            return Err(Error::invalid(tile, "invalid foreign tile extent"));
+        }
+        let entries = source.relative(tile + 24, !0)?;
+        // The pointer targets the first slot, immediately after the count.
+        if entries < tile + 32 || entries > end {
+            return Err(Error::invalid(tile + 24, "invalid export table"));
+        }
+        let count = source.u32(entries - 4)?;
+        if u64::from(count) > (end - entries) / 4 {
+            return Err(Error::invalid(entries, "export table exceeds tile"));
+        }
+        Ok(Self {
+            tip,
+            tile,
+            end,
+            entries,
+            count,
+        })
+    }
+
+    fn resolve(&self, source: &impl Source, tex: u32) -> Result<u64> {
+        if tex >= self.count {
+            return Err(Error::invalid(self.entries, "export index outside table"));
+        }
+        let entry = self.entries + u64::from(tex) * 4;
+        let delta = source.i32(entry)?;
+        if delta == 0 {
+            return Err(Error::invalid(entry, "missing export"));
+        }
+        add(entry, i64::from(delta))
+    }
+}
+
+pub(crate) fn foreign_feature<'a, S: Source>(
+    lib: &'a Library<S>,
+    cache: &mut Option<ExportTable>,
+    tip: u32,
+    tex: u32,
+) -> Result<Feature<'a, S>> {
+    let table = match *cache {
+        Some(table) if table.tip == tip => table,
+        _ => {
+            let table = ExportTable::read(&lib.source, tip, lib.tile_page(tip)?)?;
+            *cache = Some(table);
+            table
+        }
+    };
+    Feature::at(lib, table.resolve(&lib.source, tex)?, table.tile, table.end)
+}
+
 /// Bounded lazy traversal of a feature-reference table. Shared decoding handles
 /// forward parent tables and backward way-node tables.
 pub struct FeatureLinks<'a, S> {
@@ -115,7 +179,7 @@ pub struct FeatureLinks<'a, S> {
     backwards: bool,
     tip: i64,
     tex: i64,
-    cached_foreign: Option<(u32, u64, u64, u64)>,
+    cached_foreign: Option<ExportTable>,
     steps: u64,
 }
 impl<'a, S: Source> FeatureLinks<'a, S> {
@@ -188,21 +252,7 @@ impl<'a, S: Source> FeatureLinks<'a, S> {
                 u32::try_from(self.tip).map_err(|_| Error::invalid(start, "invalid tile delta"))?;
             let tex = u32::try_from(self.tex)
                 .map_err(|_| Error::invalid(start, "invalid export delta"))?;
-            let (tile, end, exports) = match self.cached_foreign {
-                Some((cached_tip, tile, end, exports)) if cached_tip == tip => (tile, end, exports),
-                _ => {
-                    let tile = f.library.tile_page(tip)?;
-                    let end = tile + 4 + u64::from(s.u32(tile)? & 0x3fff_ffff);
-                    let exports = s.relative(tile + 24, !0)?;
-                    self.cached_foreign = Some((tip, tile, end, exports));
-                    (tile, end, exports)
-                }
-            };
-            let entry = exports + u64::from(tex) * 4;
-            if entry < tile || entry.checked_add(4).is_none_or(|p| p > end) {
-                return Err(Error::invalid(entry, "export outside tile"));
-            }
-            Feature::at(f.library, s.relative(entry, !0)?, tile, end)?
+            foreign_feature(f.library, &mut self.cached_foreign, tip, tex)?
         } else {
             let target = if self.backwards {
                 add(start, i64::from(word >> 1) + 2)?
@@ -431,4 +481,27 @@ pub(crate) fn read_original_way_node_id<S: Source>(
         .ok_or_else(|| Error::invalid(*p, "node ID overflow"))?;
     owner.check(*p - 1, 1)?;
     u64::try_from(*current).map_err(|_| Error::invalid(*p, "negative node ID"))
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    #[test]
+    fn sparse_exports_and_table_bounds() -> Result<()> {
+        let mut bytes = vec![0; 80];
+        bytes[..4].copy_from_slice(&76u32.to_le_bytes());
+        bytes[24..28].copy_from_slice(&12u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&20u32.to_le_bytes());
+        let table = ExportTable::read(&bytes, 1, 0)?;
+        assert!(table.resolve(&bytes, 0).is_err());
+        assert_eq!(table.resolve(&bytes, 1)?, 60);
+        assert!(table.resolve(&bytes, 2).is_err());
+        bytes[32..36].copy_from_slice(&12u32.to_le_bytes());
+        assert!(ExportTable::read(&bytes, 1, 0).is_err());
+        bytes[24..28].fill(0);
+        assert!(ExportTable::read(&bytes, 1, 0).is_err());
+        Ok(())
+    }
 }

@@ -18,6 +18,14 @@ pub enum Error {
     },
     /// The header contains an unsupported format version.
     UnsupportedVersion(u32),
+    /// A Geo-Object Bundle catalog, metadata section or chunk is invalid.
+    #[cfg(feature = "gob")]
+    InvalidGob {
+        /// Byte offset associated with the invalid data.
+        offset: u64,
+        /// Description of the failed format check.
+        message: &'static str,
+    },
     /// A referenced tile is missing or unavailable in the active snapshot.
     MissingTile(u32),
     /// A configured resource ceiling was reached.
@@ -53,6 +61,10 @@ impl fmt::Display for Error {
             Self::Invalid { offset, message } => write!(f, "invalid GOL at {offset:#x}: {message}"),
             Self::UnsupportedVersion(v) => {
                 write!(f, "unsupported GOL format version {v}; expected 2")
+            }
+            #[cfg(feature = "gob")]
+            Self::InvalidGob { offset, message } => {
+                write!(f, "invalid GOB at {offset:#x}: {message}")
             }
             Self::MissingTile(tip) => write!(f, "tile {tip} is missing or not current"),
             Self::Limit(s) => write!(f, "resource limit exceeded: {s}"),

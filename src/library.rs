@@ -63,7 +63,7 @@ pub struct Library<S = PagedFile> {
     pub(crate) way_node_ids: bool,
     pub(crate) categories: Vec<(u16, u32)>,
     active_snapshot: u8,
-    tile_count: u32,
+    pub(crate) tile_count: u32,
     pub(crate) text_indexes: Vec<TextTagIndex>,
     pub(crate) adaptive_text_index: AdaptiveTextIndex,
 }
@@ -327,11 +327,17 @@ impl<S: Source> Library<S> {
     pub(crate) fn tile_page(&self, tip: u32) -> Result<u64> {
         let word = self.index_word(self.tile_index + u64::from(tip) * 4)?;
         if word & 3 != 2 || word >> 2 == 0 {
-            return Err(Error::MissingTile(tip));
+            return Err(self.missing_tile(tip));
         }
         let offset = u64::from(word >> 2) * 4096;
         self.source.check(offset, 28)?;
         Ok(offset)
+    }
+
+    pub(crate) fn missing_tile(&self, tip: u32) -> Error {
+        #[cfg(feature = "gob")]
+        self.source.missing_tile(tip);
+        Error::MissingTile(tip)
     }
 }
 

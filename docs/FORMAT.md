@@ -104,3 +104,25 @@ producer update workflow. Concurrent live updates are outside the storage contra
 
 These notes document the exercised GOL 2.0 encodings, not arbitrary extensions.
 Unsupported versions and unavailable tiles fail explicitly.
+
+## Geo-Object Bundles
+
+A GOB 2.0 snapshot begins with magic `0xe0f6b060` and a 64-byte header.
+Its two version fields are u16 major and minor. The 16-byte tileset ID
+begins at byte 8. The flags, tile count, base revision, revision and compressed
+metadata length are u32 fields at 24, 28, 32, 36 and 48. Bit 0 of the flags
+enables way-node IDs. The timestamp is an eight-byte field at 40.
+
+The header is followed by one pair of u32 tile index position and compressed
+size per archived tile. A CRC32C covers the header and pairs. Then come the
+sealed metadata chunk and sealed tile chunks in catalog order. Each sealed
+chunk begins with the u32 decompressed length and CRC32C of its decompressed
+payload, followed by raw DEFLATE bytes.
+
+Metadata sections have a one-byte type, an unsigned varint length and a
+payload. Types 1 through 5 carry the GOL properties, settings, spatial
+directory, global strings and key schema. The metadata retains the complete
+spatial directory with every tile page entry zeroed, so a partial archive
+can describe tiles whose chunks are absent. The importer uses these entries
+and the unchanged tile and export IDs to resolve foreign feature references
+as tiles arrive. Only complete snapshot tile payloads are supported.
