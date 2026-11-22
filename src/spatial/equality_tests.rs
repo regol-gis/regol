@@ -686,7 +686,7 @@ fn dictionary_unions_match_checked_lookup_across_page_and_tile_edges() -> Result
     let page = 32 * 1024;
     let base = bytes.len().next_multiple_of(page);
     bytes.resize(base + page + 16, 0);
-    let path = std::env::temp_dir().join(format!("gol-union-paged-{}.bin", std::process::id()));
+    let path = tempfile::NamedTempFile::new()?.into_temp_path();
     let first = u32::from(amenity) << 2 | 1 | u32::from(highway) << 16;
     let first_miss = u32::from(amenity) << 2 | 1;
     let second = u32::from(building) << 2 | 0x8001 | u32::from(u16::MAX) << 16;
@@ -728,7 +728,6 @@ fn dictionary_unions_match_checked_lookup_across_page_and_tile_edges() -> Result
             }
         }
     }
-    std::fs::remove_file(path)?;
     Ok(())
 }
 

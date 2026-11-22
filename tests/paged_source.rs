@@ -38,10 +38,11 @@ fn open_file_backends_read_absolute_offsets_from_an_existing_handle() -> std::io
 
 #[test]
 fn cached_pages_cover_boundaries_and_remain_valid_after_file_change() -> std::io::Result<()> {
-    let path = std::env::temp_dir().join(format!("gol-pages-{}.bin", std::process::id()));
+    use std::io::{Seek, Write};
+    let mut file = tempfile::tempfile()?;
     let original: Vec<u8> = (0..600_123).map(|i| (i % 251) as u8).collect();
-    std::fs::write(&path, &original)?;
-    let source = PagedFile::open(&path)?;
+    file.write_all(&original)?;
+    let source = PagedFile::from_file(file.try_clone()?)?;
     let page_bytes = source.page_bytes();
     assert_eq!(source.cached_bytes(), 0);
     assert!(source.retained_tail(0).is_none());
@@ -76,24 +77,22 @@ fn cached_pages_cover_boundaries_and_remain_valid_after_file_change() -> std::io
     assert!(source.view(source.len(), 0)?.unwrap().is_empty());
     assert_eq!(source.cached_bytes(), cached);
     let borrowed = source.view(0, 23)?.unwrap();
-    std::fs::write(&path, b"changed")?;
+    file.set_len(0)?;
+    file.rewind()?;
+    file.write_all(b"changed")?;
     assert_eq!(borrowed, &original[..23]);
-    drop(source);
-    std::fs::remove_file(path)?;
     Ok(())
 }
 
 #[test]
 fn uncached_pages_fail_after_truncation_without_exposing_partial_reads() -> std::io::Result<()> {
-    let path = std::env::temp_dir().join(format!("gol-page-errors-{}.bin", std::process::id()));
-    std::fs::write(&path, vec![91; 600_123])?;
-    let source = PagedFile::open(&path)?;
+    use std::io::Write;
+    let mut file = tempfile::tempfile()?;
+    file.write_all(&vec![91; 600_123])?;
+    let source = PagedFile::from_file(file.try_clone()?)?;
     let borrowed = source.view(0, 23)?.unwrap();
     let cached = source.cached_bytes();
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(&path)?
-        .set_len(1)?;
+    file.set_len(1)?;
     assert_eq!(borrowed, &[91; 23]);
     for _ in 0..2 {
         let next_page = source.page_bytes() as u64;
@@ -101,8 +100,6 @@ fn uncached_pages_fail_after_truncation_without_exposing_partial_reads() -> std:
         assert!(source.retained_tail(next_page).is_none());
         assert_eq!(source.cached_bytes(), cached);
     }
-    drop(source);
-    std::fs::remove_file(path)?;
     Ok(())
 }
 
@@ -233,8 +230,7 @@ fn compare_queries_and_fields<S: Source>(
 #[test]
 fn sparse_file_reads_across_directory_groups_and_a_short_final_page() -> std::io::Result<()> {
     use std::io::{Seek, SeekFrom, Write};
-    let path = std::env::temp_dir().join(format!("regol-sparse-pages-{}.bin", std::process::id()));
-    let mut file = std::fs::File::create(&path)?;
+    let mut file = tempfile::NamedTempFile::new()?;
     file.write_all(include_bytes!("fixtures/basic.gol"))?;
     let boundary = 128 * 32 * 1024;
     let end = 64 * boundary + 1;
@@ -242,9 +238,9 @@ fn sparse_file_reads_across_directory_groups_and_a_short_final_page() -> std::io
     file.write_all(&[3, 4])?;
     file.seek(SeekFrom::Start(end - 1))?;
     file.write_all(&[5])?;
-    drop(file);
     let lib =
-        Library::open_with_dictionary_loading(&path, regol::DictionaryLoading::OnDemand).unwrap();
+        Library::open_with_dictionary_loading(file.path(), regol::DictionaryLoading::OnDemand)
+            .unwrap();
     let source = lib.source();
     let initial = source.cached_bytes();
     assert_eq!(initial, source.page_bytes());
@@ -255,6 +251,5 @@ fn sparse_file_reads_across_directory_groups_and_a_short_final_page() -> std::io
     assert_eq!(source.view(end - 1, 1)?, Some(&[5][..]));
     assert_eq!(source.cached_bytes(), initial + 2 * source.page_bytes() + 1);
     assert!(source.read_exact_at(end, &mut pair).is_err());
-    drop(lib);
-    std::fs::remove_file(path)
+    Ok(())
 }

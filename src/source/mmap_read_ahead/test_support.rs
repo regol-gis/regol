@@ -1,9 +1,7 @@
 use super::*;
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 #[allow(unsafe_code)]
@@ -13,26 +11,12 @@ pub(crate) fn mapped_fixture(bytes: &[u8]) -> io::Result<MappedFile> {
 
 #[allow(unsafe_code)]
 fn fixture_with_writer(bytes: &[u8]) -> io::Result<(MappedFile, fs::File)> {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!(
-        "regol-mapped-scan-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed),
-    ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&path)?;
-    let mapping = (|| {
-        file.write_all(bytes)?;
-        // SAFETY: the fixture is complete and only this test knows its path.
-        // The writer is used only after the owner drops. Unlinking below
-        // leaves the mapped file contents intact.
-        unsafe { MappedFile::open(&path) }
-    })();
-    let removed = fs::remove_file(path);
-    mapping.and_then(|mapping| removed.map(|()| (mapping, file)))
+    let mut file = tempfile::tempfile()?;
+    file.write_all(bytes)?;
+    // SAFETY: the anonymous file is owned by this test. The writer is used
+    // again only after the mapping and its helpers have been dropped.
+    let mapping = unsafe { MappedFile::from_immutable_file(&file)? };
+    Ok((mapping, file))
 }
 
 pub(crate) fn force_helpers(scan: &mut MappedScan<'_>) {
