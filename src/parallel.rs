@@ -304,7 +304,7 @@ impl QueryExecutor {
     ) -> Result<T> {
         let mut features = query.features(bounds);
         if threads <= 1 {
-            return query.fold_in(&mut features, || Ok(true), identity(), fold);
+            return query.fold_unbounded(&mut features, identity(), fold);
         }
         let prefix = query.fold_in(&mut features, step_budget(prefix_steps), identity(), &fold)?;
         if features.finished() {
@@ -486,7 +486,7 @@ impl QueryExecutor {
     ) -> Result<T> {
         let mut features = query.features(bounds);
         if self.threads() == 1 {
-            return query.fold_in(&mut features, || Ok(true), identity(), fold);
+            return query.fold_unbounded(&mut features, identity(), fold);
         }
         let mut prefix = identity();
         match policy {

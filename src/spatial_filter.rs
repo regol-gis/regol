@@ -255,11 +255,9 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
             if filter.has_no_matches() {
                 return None;
             }
-            self.scan_in(
-                &mut features,
-                || Ok(true),
-                |feature| filter.matches_candidate(feature),
-            )
+            self.scan_unbounded_erased(&mut features, &mut |feature| {
+                filter.matches_candidate(feature)
+            })
         })
         .fuse()
     }

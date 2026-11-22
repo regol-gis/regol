@@ -754,6 +754,7 @@ impl CompiledPredicate<'_> {
 impl<'a, S: Source> PreparedQuery<'a, '_, S> {
     // Select the traversal specialization once per yielded result, rather than
     // dispatching the plan for every rejected candidate in a selective query.
+    #[cfg(any(feature = "parallel", test))]
     pub(crate) fn next_in(
         &self,
         features: &mut Features<'a, S>,
@@ -967,7 +968,7 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         initial: T,
         fold: impl FnMut(T, Feature<'a, S>) -> Result<T>,
     ) -> Result<T> {
-        self.fold_in(&mut self.features(None), || Ok(true), initial, fold)
+        self.fold_unbounded(&mut self.features(None), initial, fold)
     }
 
     /// Reduce features whose stored bounding boxes intersect `bounds`.
@@ -978,7 +979,30 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         initial: T,
         fold: impl FnMut(T, Feature<'a, S>) -> Result<T>,
     ) -> Result<T> {
-        self.fold_in(&mut self.features(Some(bounds)), || Ok(true), initial, fold)
+        self.fold_unbounded(&mut self.features(Some(bounds)), initial, fold)
+    }
+
+    pub(crate) fn fold_unbounded<T>(
+        &self,
+        features: &mut Features<'a, S>,
+        initial: T,
+        mut fold: impl FnMut(T, Feature<'a, S>) -> Result<T>,
+    ) -> Result<T> {
+        if let CompiledPlan::All(types) = &self.plan {
+            if self.library.source.as_bytes().is_some() {
+                return features.try_fold_all(*types, initial, fold, || Ok(true));
+            }
+        }
+        let mut value = Some(initial);
+        self.scan_unbounded_erased(features, &mut |feature| {
+            let previous = value
+                .take()
+                .expect("a successful fold retains its accumulator");
+            value = Some(fold(previous, feature)?);
+            Ok(false)
+        })
+        .transpose()?;
+        Ok(value.expect("a successful fold retains its accumulator"))
     }
 
     pub(crate) fn fold_in<T>(
@@ -1057,14 +1081,43 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         self.scan_in_erased(features, &mut step, &mut emit)
     }
 
-    // Type-erase `step` and `emit` at this boundary so callers do not
-    // multiply all ten CompiledPlan arms and Features::advance per closure.
+    // Single concrete instantiation for unbounded iterator scans: both `step`
+    // and `emit` constant-fold away inside tight whole-tile leaf loops.
+    #[inline]
+    fn next_unbounded(&self, features: &mut Features<'a, S>) -> Option<Result<Feature<'a, S>>> {
+        self.scan_plan(features, || Ok(true), |_| Ok(true))
+    }
+
+    // Single concrete instantiation for unbounded folds and spatial filters:
+    // `step` constant-folds away on rejected candidates while `emit` stays
+    // erased so callers do not multiply plan arms per closure.
+    #[inline(never)]
+    pub(crate) fn scan_unbounded_erased(
+        &self,
+        features: &mut Features<'a, S>,
+        emit: &mut dyn FnMut(Feature<'a, S>) -> Result<bool>,
+    ) -> Option<Result<Feature<'a, S>>> {
+        self.scan_plan(features, || Ok(true), emit)
+    }
+
+    // Type-erase `step` and `emit` for budgeted parallel leases so callers do
+    // not multiply all ten CompiledPlan arms and Features::advance per closure.
     #[inline(never)]
     fn scan_in_erased(
         &self,
         features: &mut Features<'a, S>,
         step: &mut dyn FnMut() -> Result<bool>,
         emit: &mut dyn FnMut(Feature<'a, S>) -> Result<bool>,
+    ) -> Option<Result<Feature<'a, S>>> {
+        self.scan_plan(features, step, emit)
+    }
+
+    #[inline(always)]
+    fn scan_plan(
+        &self,
+        features: &mut Features<'a, S>,
+        step: impl FnMut() -> Result<bool>,
+        mut emit: impl FnMut(Feature<'a, S>) -> Result<bool>,
     ) -> Option<Result<Feature<'a, S>>> {
         match &self.plan {
             CompiledPlan::All(types) => features.next_with_budget::<true>(
@@ -1358,7 +1411,7 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
                 result
             }
             StreamPlan::Other(features) => {
-                let result = self.next_in(features, || Ok(true));
+                let result = self.next_unbounded(features);
                 observe_result(&mut observation, &mut seen, &result, features.steps());
                 result
             }

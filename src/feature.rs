@@ -276,6 +276,7 @@ impl<'a, S: Source> Feature<'a, S> {
         Ok(p)
     }
     /// Iterate over the stored tags, including locally encoded keys and values.
+    #[inline]
     pub fn tags(self) -> Result<Tags<'a, S>> {
         Tags::new(self)
     }
@@ -754,6 +755,7 @@ pub struct Tags<'a, S> {
     steps: u64,
 }
 impl<'a, S: Source> Tags<'a, S> {
+    #[inline]
     fn new(feature: Feature<'a, S>) -> Result<Self> {
         let local = feature.tag_pointer & 1 != 0;
         let table = feature.checked_tag_table()?;
