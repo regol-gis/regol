@@ -12,7 +12,7 @@ use prost::Message;
 use std::{
     io::BufRead,
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -229,14 +229,14 @@ pub(super) fn read(mut input: impl BufRead, budget: &MemoryBudget) -> Result<(He
 
     let capacity = workers * 2;
     let (raw_tx, raw_rx) = mpsc::sync_channel::<(usize, Vec<u8>)>(capacity);
-    let raw_rx = Mutex::new(raw_rx);
+    let raw_rx = Arc::new(Mutex::new(raw_rx));
     let cancelled = AtomicBool::new(false);
 
     let (header, worker_stages): (Option<Header>, Vec<WorkerStage>) =
         std::thread::scope(|scope| -> Result<(Option<Header>, Vec<WorkerStage>)> {
             let mut handles = Vec::with_capacity(workers);
             for _ in 0..workers {
-                let raw_rx = &raw_rx;
+                let raw_rx = Arc::clone(&raw_rx);
                 let cancelled = &cancelled;
                 let sink = &sink;
                 handles.push(scope.spawn(move || -> Result<WorkerStage> {
@@ -270,6 +270,9 @@ pub(super) fn read(mut input: impl BufRead, budget: &MemoryBudget) -> Result<(He
                 }));
             }
 
+            // Only workers own the receiver while the producer is sending.
+            // Their exit must wake a producer blocked on a full queue.
+            drop(raw_rx);
             let mut seq = 0usize;
             let read_res = (|| -> Result<()> {
                 while let Some((kind, bytes)) = read_frame(&mut input)? {

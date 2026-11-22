@@ -162,7 +162,13 @@ impl MemoryBudget {
     pub(super) fn create_file(&self, name: &str) -> Result<File> {
         let mut guard = self.temp_dir.lock().unwrap();
         if guard.is_none() {
-            let dir = tempfile::Builder::new()
+            let mut builder = tempfile::Builder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                builder.permissions(std::fs::Permissions::from_mode(0o700));
+            }
+            let dir = builder
                 .prefix(".regol-spill-")
                 .tempdir_in(&self.parent)
                 .with_context(|| format!("create spill directory in {}", self.parent.display()))?;
@@ -833,6 +839,25 @@ pub(super) fn read_exact_or_eof(reader: &mut impl Read, buf: &mut [u8]) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn spill_directory_is_private() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = tempfile::tempdir()?;
+        let budget = MemoryBudget::force_spill_in(parent.path(), 0);
+        budget.create_file("private.spill")?;
+        let dir = budget.temp_dir.lock().unwrap();
+        let mode = dir
+            .as_ref()
+            .unwrap()
+            .path()
+            .metadata()?
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0);
+        Ok(())
+    }
 
     #[test]
     fn paged_blob_round_trips_across_page_boundaries_and_evictions() -> Result<()> {
