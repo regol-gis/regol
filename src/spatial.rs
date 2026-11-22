@@ -656,7 +656,12 @@ impl<'a, S: Source> Features<'a, S> {
         }
     }
     #[cfg(feature = "parallel")]
-    fn expand_roots_for_partition(&mut self, mut p: u64, node: bool, steps: &mut u64) -> Result<()> {
+    fn expand_roots_for_partition(
+        &mut self,
+        mut p: u64,
+        node: bool,
+        steps: &mut u64,
+    ) -> Result<()> {
         loop {
             *steps += 1;
             if *steps > self.library.limits.max_traversal_steps {

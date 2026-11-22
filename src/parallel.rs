@@ -306,12 +306,7 @@ impl QueryExecutor {
         if threads <= 1 {
             return query.fold_in(&mut features, || Ok(true), identity(), fold);
         }
-        let prefix = query.fold_in(
-            &mut features,
-            step_budget(prefix_steps),
-            identity(),
-            &fold,
-        )?;
+        let prefix = query.fold_in(&mut features, step_budget(prefix_steps), identity(), &fold)?;
         if features.finished() {
             return Ok(prefix);
         }
@@ -356,7 +351,8 @@ impl QueryExecutor {
 
         let budget = Budget::new(query.step_limit() - index_steps);
         let next = AtomicUsize::new(0);
-        let results: Vec<Mutex<Option<Result<T>>>> = (0..workers).map(|_| Mutex::new(None)).collect();
+        let results: Vec<Mutex<Option<Result<T>>>> =
+            (0..workers).map(|_| Mutex::new(None)).collect();
 
         enum WorkSource<'a, S> {
             Split(Vec<Mutex<Option<Features<'a, S>>>>),

@@ -796,7 +796,10 @@ fn try_fold_reduce_once_matches_serial_across_prefixes_and_threads() -> Result<(
                     },
                 )?;
                 actual.sort_unstable();
-                assert_eq!(actual, expected, "threads={threads} prefix={prefix} query={text}");
+                assert_eq!(
+                    actual, expected,
+                    "threads={threads} prefix={prefix} query={text}"
+                );
             }
         }
     }

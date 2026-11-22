@@ -25,10 +25,8 @@ pub(super) fn write<S: Source + Sync>(
             .map(usize::from)
             .unwrap_or(1)
     });
-    let total = export.nodes.len()
-        + export.vertices.len()
-        + export.ways.len()
-        + export.relations.len();
+    let total =
+        export.nodes.len() + export.vertices.len() + export.ways.len() + export.relations.len();
 
     if workers <= 1 || total < 1024 {
         write_serial(export, writer)?;
@@ -531,7 +529,13 @@ mod tests {
         // Expand nodes & vertices beyond CHUNK so multiple parallel node waves run.
         let mut extra_vertices = Vec::new();
         for id in 100..2600u64 {
-            extra_vertices.push((id, Point { x: (id as i32) * 1000, y: -(id as i32) * 1000 }));
+            extra_vertices.push((
+                id,
+                Point {
+                    x: (id as i32) * 1000,
+                    y: -(id as i32) * 1000,
+                },
+            ));
         }
         export.vertices.extend(extra_vertices);
         export.vertices.sort_unstable_by_key(|v| v.0);

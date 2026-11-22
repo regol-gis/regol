@@ -19,8 +19,8 @@ for name, entry in manifest['variants'].items():
     check(name + '.oracle.geojson', entry['oracle_sha256'])
     check(name + '.queries.json', entry['queries_sha256'])
     check(str(pathlib.Path(entry['input']).with_suffix('.json')), entry['expected_input_sha256'])
-# The CLI is a separate crate. Its packaged tests carry these two fixtures.
-for variant in ('basic', 'ids'):
+# The CLI is a separate crate. Its packaged tests carry these three fixtures.
+for variant in ('basic', 'ids', 'tiled'):
     cli_fixture = root.parents[1] / 'cli' / 'tests' / 'fixtures' / f'{variant}.gol'
     if hashlib.sha256(cli_fixture.read_bytes()).hexdigest() != manifest['variants'][variant]['sha256']:
         raise SystemExit(f'{cli_fixture}: expected the library fixture for {variant}')

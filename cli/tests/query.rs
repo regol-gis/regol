@@ -419,29 +419,17 @@ fn export_empty_results_and_precision_errors() {
 
 #[test]
 fn unordered_flag_exports_same_decoded_records_across_formats() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../tests/fixtures/tiled.gol");
-    let run_tiled = |args: &[&str]| {
-        successful_stdout(
-            Command::new(env!("CARGO_BIN_EXE_regol"))
-                .arg("query")
-                .arg(&fixture)
-                .args(args)
-                .output()
-                .unwrap(),
-        )
-    };
+    let run_tiled = |args: &[&str]| successful_stdout(fixture_query("tiled.gol", args));
 
     // IDs
     let mut ordered_ids: Vec<_> = run_tiled(&["*", "-f", "ids", "--threads", "1"])
         .lines()
         .map(str::to_owned)
         .collect();
-    let mut unordered_ids: Vec<_> =
-        run_tiled(&["*", "-f", "ids", "--threads", "4", "--unordered"])
-            .lines()
-            .map(str::to_owned)
-            .collect();
+    let mut unordered_ids: Vec<_> = run_tiled(&["*", "-f", "ids", "--threads", "4", "--unordered"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
     ordered_ids.sort();
     unordered_ids.sort();
     assert_eq!(ordered_ids, unordered_ids);

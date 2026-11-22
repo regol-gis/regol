@@ -330,8 +330,13 @@ impl<'a, S: Source> Feature<'a, S> {
                     let word = u32::from_le_bytes(*tail.first_chunk::<4>()?);
                     let found = ((word >> 2) & 8191) as u16;
                     if found == target_code {
-                        let val =
-                            decode_inline_value(tile, dict, off + 2, word & 3, (word >> 16) as u16)?;
+                        let val = decode_inline_value(
+                            tile,
+                            dict,
+                            off + 2,
+                            word & 3,
+                            (word >> 16) as u16,
+                        )?;
                         return Some(Some(val));
                     }
                     if found > target_code || word & 0x8000 != 0 {

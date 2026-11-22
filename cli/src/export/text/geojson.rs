@@ -156,12 +156,12 @@ impl<'a> Encoder<'a> {
                 }
                 let is_area = feature.is_area();
                 if is_area
-                    && (scratch.points.len() < 4
-                        || scratch.points.first() != scratch.points.last())
+                    && (scratch.points.len() < 4 || scratch.points.first() != scratch.points.last())
                 {
-                    return Err(
-                        format!("{id}: ring is unclosed or has fewer than four coordinates").into(),
-                    );
+                    return Err(format!(
+                        "{id}: ring is unclosed or has fewer than four coordinates"
+                    )
+                    .into());
                 }
                 if !super::super::antimeridian::crosses(&scratch.points) {
                     let bounds = if self.include_bounds {
@@ -201,8 +201,7 @@ impl<'a> Encoder<'a> {
                 } else {
                     regol::Geometry::LineString(std::mem::take(&mut scratch.points))
                 };
-                let cut = CutGeometry::new(&geometry)
-                    .map_err(|error| format!("{id}: {error}"))?;
+                let cut = CutGeometry::new(&geometry).map_err(|error| format!("{id}: {error}"))?;
                 let bounds = if self.include_bounds {
                     Some(match cut.bounds() {
                         Some(bounds) => self.writer.cut_bounds(bounds),
@@ -217,8 +216,7 @@ impl<'a> Encoder<'a> {
             }
             FeatureType::Relation => {
                 let geometry = feature_geometry(feature)?;
-                let cut = CutGeometry::new(&geometry)
-                    .map_err(|error| format!("{id}: {error}"))?;
+                let cut = CutGeometry::new(&geometry).map_err(|error| format!("{id}: {error}"))?;
                 let bounds = if self.include_bounds {
                     Some(match cut.bounds() {
                         Some(bounds) => self.writer.cut_bounds(bounds),

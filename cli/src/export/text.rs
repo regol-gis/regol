@@ -450,9 +450,10 @@ fn write_wkt_feature_into(
             }
             if feature.is_area() {
                 if scratch.points.len() < 4 || scratch.points.first() != scratch.points.last() {
-                    return Err(
-                        format!("{id}: ring is unclosed or has fewer than four coordinates").into(),
-                    );
+                    return Err(format!(
+                        "{id}: ring is unclosed or has fewer than four coordinates"
+                    )
+                    .into());
                 }
                 out.extend_from_slice(b"POLYGON (");
                 writer.push_line_points(out, &scratch.points, &mut scratch.integer);
@@ -736,11 +737,7 @@ impl<'a> CsvWriter<'a> {
 }
 
 #[inline]
-pub(super) fn push_feature_id(
-    out: &mut Vec<u8>,
-    integer: &mut itoa::Buffer,
-    id: regol::FeatureId,
-) {
+pub(super) fn push_feature_id(out: &mut Vec<u8>, integer: &mut itoa::Buffer, id: regol::FeatureId) {
     out.push(super::id_prefix(id.kind));
     out.extend_from_slice(integer.format(id.id).as_bytes());
 }
@@ -809,7 +806,11 @@ impl GeometryWriter {
 
     fn push_geometry(&self, out: &mut Vec<u8>, geometry: &Geometry, scratch: &mut Scratch) {
         let (json_header, wkt_name, empty) = match geometry {
-            Geometry::Point(_) => (&b"{\"type\":\"Point\",\"coordinates\":"[..], &b"POINT "[..], false),
+            Geometry::Point(_) => (
+                &b"{\"type\":\"Point\",\"coordinates\":"[..],
+                &b"POINT "[..],
+                false,
+            ),
             Geometry::LineString(line) => (
                 &b"{\"type\":\"LineString\",\"coordinates\":"[..],
                 &b"LINESTRING "[..],
@@ -1314,8 +1315,21 @@ mod tests {
     fn push_tag_number_matches_tag_value_display() {
         let mut integer = itoa::Buffer::new();
         for scale in 0..=12u8 {
-            for mantissa in [i32::MIN, -100_000, -100, -5, -1, 0, 1, 5, 10, 99, 100, 123456, i32::MAX]
-            {
+            for mantissa in [
+                i32::MIN,
+                -100_000,
+                -100,
+                -5,
+                -1,
+                0,
+                1,
+                5,
+                10,
+                99,
+                100,
+                123456,
+                i32::MAX,
+            ] {
                 let mut fast = Vec::new();
                 push_tag_number(&mut fast, mantissa, scale, &mut integer);
                 let expected = TagValue::Number { mantissa, scale }.to_string();
