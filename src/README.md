@@ -115,6 +115,7 @@ call `Library::check_integrity`.
 | `http` | Open URLs with HTTP/3 or pooled HTTP/1.1 range GETs using system trust roots. Linux builds use the system OpenSSL development package. |
 | `mmap` | Read from a memory-mapped file. The backing file must stay unmodified and untruncated for the lifetime of the mapping. |
 | `build` | Compile a raw or zlib-compressed OSM PBF snapshot with `build::build_pbf` using the pure-Rust multi-threaded pipeline (no C compiler or SQLite required). |
+| `gob` | Import complete tiles from a GOB 2.0 snapshot into a queryable store and write them as a GOL. |
 | `way-checkpoints` | Index long ways for repeated vertex and original-node-ID lookups. Original IDs must be present in the GOL. |
 | `experimental-tag-sidecars` | Build and query auxiliary tag indexes on Unix. Requires `mmap` and immutable backing files. |
 

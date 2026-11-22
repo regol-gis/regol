@@ -244,6 +244,22 @@ fn compile_region() -> anyhow::Result<()> {
 }
 ```
 
+### 5. Importing a GOB snapshot (`gob` feature)
+
+A Geo-Object Bundle (GOB) stores individually compressed tiles. Enable the
+`gob` Cargo feature to import the tiles covering a viewport and query them
+through the usual `Library` API. The caller supplies bytes from a local file
+or HTTP range requests. When a relation needs another tile, the library
+returns its ID so the caller can fetch it and retry.
+
+The example writes a new GOL containing the selected tiles. Coordinates are
+west, south, east and north in degrees.
+
+```sh
+cargo run --locked --release --no-default-features --features gob --example import_gob -- \
+  planet.gob london.gol -0.178,51.482,-0.078,51.532
+```
+
 ### Cargo features (`regol` library)
 
 | Feature | Default | Purpose |
@@ -252,6 +268,7 @@ fn compile_region() -> anyhow::Result<()> {
 | `http` | No | Read immutable GOLs over HTTP/3 or pooled HTTP/1.1 with `source::HttpSource`. The CLI enables this feature. |
 | `mmap` | No | `source::MappedFile` zero-copy memory-mapped reader for immutable files |
 | `build` | No | Pure-Rust multi-threaded OSM PBF → GOL 2.0 compiler (`regol::build`) |
+| `gob` | No | Import GOB 2.0 snapshot tiles, query them in memory and write the loaded tiles as a GOL. |
 | `way-checkpoints` | No | Index long ways for repeated vertex and original-node-ID lookups |
 | `experimental-tag-sidecars` | No | Auxiliary Unix tag sidecar indexes (requires `mmap`) |
 

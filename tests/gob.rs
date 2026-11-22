@@ -1,11 +1,12 @@
 #![cfg(feature = "gob")]
 
 use regol::{
-    Bounds, Error, Feature, FeatureId, FeatureType, Geometry, Library, Query, Result,
+    Bounds, Error, Feature, FeatureId, FeatureType, Geometry, Library, Query, Result, WayNode,
     gob::{GobCatalog, GobStore},
     source::Source,
 };
 
+const BASIC: &[u8] = include_bytes!("fixtures/basic.gob");
 const TILED: &[u8] = include_bytes!("fixtures/tiled_global.gob");
 const GEOMETRY: &[u8] = include_bytes!("fixtures/geometry.gob");
 const STORE_BYTES: usize = 1024 * 1024;
@@ -47,6 +48,13 @@ fn catalogs_validate_and_keep_coverage_for_tiles_absent_from_an_archive() -> Res
         offset += u64::from(entry.len);
     }
     assert_eq!(offset, catalog.archive_len());
+
+    let mut delta = TILED[..64].to_vec();
+    delta[32..36].copy_from_slice(&1u32.to_le_bytes());
+    assert!(matches!(
+        GobCatalog::prefix_len(&delta),
+        Err(Error::InvalidGob { offset: 32, .. })
+    ));
 
     let metadata_start = 68 + 8 * catalog.tile_count();
     let metadata_end = GobCatalog::prefix_len(TILED)?;
@@ -156,6 +164,7 @@ struct Snapshot {
     bounds: Bounds,
     tags: Vec<(String, String)>,
     geometry: Geometry,
+    way_nodes: Vec<WayNode>,
     members: Vec<(FeatureId, String)>,
 }
 
@@ -178,6 +187,11 @@ fn snapshot<S: Source>(feature: Feature<'_, S>) -> Result<Snapshot> {
         bounds: feature.bounds()?,
         tags,
         geometry: feature.geometry()?,
+        way_nodes: if feature.kind() == FeatureType::Way {
+            feature.way_nodes()?.collect::<Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        },
         members,
     })
 }
@@ -185,6 +199,7 @@ fn snapshot<S: Source>(feature: Feature<'_, S>) -> Result<Snapshot> {
 #[test]
 fn complete_store_matches_gol_queries_and_passes_integrity_check() -> Result<()> {
     for (gob, gol) in [
+        (BASIC, include_bytes!("fixtures/basic.gol").as_slice()),
         (
             TILED,
             include_bytes!("fixtures/tiled_global.gol").as_slice(),
@@ -195,7 +210,10 @@ fn complete_store_matches_gol_queries_and_passes_integrity_check() -> Result<()>
         let mut store = GobStore::new(open(gob)?, STORE_BYTES)?;
         assert_eq!(original.revision()?, u64::from(store.catalog().revision()));
         assert_eq!(&store.catalog().tileset_id(), &gol[64..80]);
-        assert!(store.library().has_way_node_ids());
+        assert_eq!(
+            store.library().has_way_node_ids(),
+            original.has_way_node_ids()
+        );
         for tip in store
             .catalog()
             .tiles_in_bounds(Bounds::WORLD)

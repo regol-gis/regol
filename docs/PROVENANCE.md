@@ -40,12 +40,15 @@ and attribution requirements. [OpenStreetMap attribution](https://www.openstreet
 The GOB importer was implemented in Rust using format observations from
 GOB 2.0 archives and the upstream format declarations. The synthetic
 `tiled_global.gob` and `geometry.gob` fixtures were generated from the
-corresponding pinned GOL fixtures using `gol save INPUT OUTPUT -w`. The
+corresponding pinned GOL fixtures using `gol save INPUT OUTPUT -w`.
+The `basic.gob` fixture uses `gol save basic.gol basic.gob` to cover ways
+without stored original node IDs. The
 producer reports version 2.5.3 and has SHA-256
 `23aceb23d05aa389c28a1109c9df331ae7d8f4da1d767c5ef0ccc29a0062a5ad`.
 [Upstream archive declarations](https://github.com/clarisma/geodesk-gol/blob/c0a4208e52b5b60063cc68b3d4745c489104d131/src/tile/tes/TesArchive.h)
 
 | GOB fixture | SHA-256 |
 | --- | --- |
+| `basic.gob` | `0cec72174ca0809d595aeaeb40231379ba19c2f54e611333a4c366ff0f79efb7` |
 | `tiled_global.gob` | `a1111306e184a6b45439de24cc9af11a4037e2286be29ad7db8fcfee27e892ed` |
 | `geometry.gob` | `fef0f27eeb5a5bd8e6c49a81fb5c2666c9435f5180c39d90d003fd29ff2f2a7b` |
