@@ -381,7 +381,7 @@ dependencies = [
  "log",
  "num-traits",
  "robust",
- "rstar",
+ "rstar 0.12.2",
 ]
 
 [[package]]
@@ -392,7 +392,7 @@ checksum = "777d18aa0f12f8b285331cd867133ee14422b3f023f6d388034c47d43e28786a"
 dependencies = [
  "approx",
  "num-traits",
- "rstar",
+ "rstar 0.12.2",
  "serde",
  "thiserror",
 ]
@@ -940,7 +940,7 @@ dependencies = [
  "quinn",
  "rayon",
  "regex",
- "rstar",
+ "rstar 0.13.1",
  "rustix",
  "rustls",
  "rustls-native-certs",
@@ -991,6 +991,17 @@ name = "rstar"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "421400d13ccfd26dfa5858199c30a5d76f9c54e0dba7575273025b43c5175dbb"
+dependencies = [
+ "heapless",
+ "num-traits",
+ "smallvec",
+]
+
+[[package]]
+name = "rstar"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90e7279515baf3838062fa9c495a408bc2f3abbf9cd2ac8c2d4108b90fa29b89"
 dependencies = [
  "heapless",
  "num-traits",
