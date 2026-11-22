@@ -18,6 +18,7 @@ fn temp_dir(label: &str) -> PathBuf {
 
 #[test]
 fn build_subcommand_round_trips_and_supports_layout_options() {
+    const BRANCH_FANOUT_OFFSET: usize = 100;
     let dir = temp_dir("roundtrip");
     let sample_gol = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ids.gol");
     let pbf_path = dir.join("sample.osm.pbf");
@@ -63,6 +64,7 @@ fn build_subcommand_round_trips_and_supports_layout_options() {
     );
     let stderr = String::from_utf8(build_out.stderr).unwrap();
     assert!(stderr.contains("Wrote ") && stderr.contains(" tiles."));
+    assert_eq!(fs::read(&built_default).unwrap()[BRANCH_FANOUT_OFFSET], 8);
 
     // Verify with `regol check` and `regol query`.
     let check = Command::new(env!("CARGO_BIN_EXE_regol"))
@@ -99,7 +101,7 @@ fn build_subcommand_round_trips_and_supports_layout_options() {
             "--target-tile-kib=4096",
             "--max-duplicate-tiles",
             "16",
-            "--rtree-fanout=16",
+            "--rtree-fanout=32",
             "--rtree-leaf-size",
             "64",
             pbf_path.to_str().unwrap(),
@@ -112,6 +114,7 @@ fn build_subcommand_round_trips_and_supports_layout_options() {
         "tuned build failed: {}",
         String::from_utf8_lossy(&tuned.stderr)
     );
+    assert_eq!(fs::read(&built_tuned).unwrap()[BRANCH_FANOUT_OFFSET], 32);
     let check_tuned = Command::new(env!("CARGO_BIN_EXE_regol"))
         .args(["check", built_tuned.to_str().unwrap()])
         .output()

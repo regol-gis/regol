@@ -1,19 +1,18 @@
 use crate::source::FaultSample;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
-/// Each tile group samples its own worker. Once any worker stalls, all
-/// remaining workers in this query can overlap reads with filtering.
+/// The serial prefix and tile groups share the first conclusive observation.
 pub(super) struct PartitionProbe<'a> {
-    active: &'a AtomicBool,
+    decision: &'a OnceLock<bool>,
     baseline: Option<FaultSample>,
     tiles_started: usize,
 }
 
 impl<'a> PartitionProbe<'a> {
-    pub(super) fn new(active: &'a AtomicBool) -> Self {
+    pub(super) fn new(decision: &'a OnceLock<bool>) -> Self {
         Self {
-            active,
-            baseline: if active.load(Ordering::Relaxed) {
+            decision,
+            baseline: if decision.get().is_some() {
                 None
             } else {
                 FaultSample::now()
@@ -23,8 +22,8 @@ impl<'a> PartitionProbe<'a> {
     }
 
     pub(super) fn before_tile(&mut self) -> bool {
-        if self.active.load(Ordering::Relaxed) {
-            return true;
+        if let Some(&enabled) = self.decision.get() {
+            return enabled;
         }
         // Check after the first completed tile, then every four tiles.
         let sample_due = self.tiles_started % 4 == 1;
@@ -33,19 +32,15 @@ impl<'a> PartitionProbe<'a> {
     }
 
     pub(super) fn finish(self) {
-        if !self.active.load(Ordering::Relaxed) {
+        if self.decision.get().is_none() {
             self.observe();
         }
     }
 
     fn observe(&self) -> bool {
-        let stalled = self
-            .baseline
-            .as_ref()
-            .is_some_and(FaultSample::observed_stall);
-        if stalled {
-            self.active.store(true, Ordering::Relaxed);
+        if let Some(enabled) = self.baseline.as_ref().and_then(FaultSample::speculate) {
+            return *self.decision.get_or_init(|| enabled);
         }
-        stalled
+        self.decision.get().copied().unwrap_or(false)
     }
 }

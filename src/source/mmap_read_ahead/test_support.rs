@@ -44,6 +44,34 @@ pub(crate) fn force_sequential(scan: &mut MappedScan<'_>) {
     scan.next_sample = u64::MAX;
 }
 
+#[test]
+fn only_slow_large_demand_reads_decline_speculation() {
+    let start = Activity {
+        major_faults: 10,
+        input_blocks: 100,
+        wall: Instant::now(),
+        cpu: Duration::ZERO,
+    };
+    let decision = |faults, blocks, wall_ms, cpu_ms| {
+        Activity {
+            major_faults: start.major_faults + faults,
+            input_blocks: start.input_blocks + blocks,
+            wall: start.wall + Duration::from_millis(wall_ms),
+            cpu: Duration::from_millis(cpu_ms),
+        }
+        .speculate_since(start)
+    };
+    let bulk = 2 * BULK_BLOCKS_PER_FAULT;
+    assert_eq!(decision(1, bulk, 40, 0), None);
+    assert_eq!(decision(2, bulk, 40, 0), Some(false));
+    assert_eq!(decision(2, bulk, 8, 0), Some(false));
+    assert_eq!(decision(2, bulk - 1, 8, 0), Some(true));
+    assert_eq!(decision(2, bulk, 7, 0), Some(true));
+    assert_eq!(decision(2, bulk, 40, 39), Some(true));
+    assert_eq!(decision(2, 16, 40, 0), Some(true));
+    assert_eq!(decision(2, 0, 40, 0), Some(true));
+}
+
 pub(crate) fn sequential_at(map: &MappedFile, offset: usize) -> Option<bool> {
     let address = map.map.as_ptr() as usize + offset;
     let contents = fs::read_to_string("/proc/self/smaps").ok()?;
@@ -95,6 +123,8 @@ fn scan_sampling_restarts_when_an_unadmitted_cursor_moves_threads() -> io::Resul
         Activity {
             major_faults: u64::MAX,
             input_blocks: u64::MAX,
+            wall: Instant::now(),
+            cpu: Duration::ZERO,
         },
     ));
     thread::scope(|scope| {
@@ -125,6 +155,8 @@ fn quiet_activity_leaves_mapping_normal_and_backs_off_sampling() -> io::Result<(
         Activity {
             major_faults: u64::MAX,
             input_blocks: u64::MAX,
+            wall: Instant::now(),
+            cpu: Duration::ZERO,
         },
     ));
     scan.sample(INITIAL_SAMPLE_STEPS);

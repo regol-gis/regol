@@ -559,7 +559,8 @@ impl QueryExecutor {
     /// the first call to `next` dispatches whole tiles. An unused stream does
     /// no traversal. A single worker can traverse such a source serially.
     /// On Linux, workers scanning an entire immutable memory-mapped library
-    /// begin reading ahead within their tiles after observing major page faults.
+    /// can read ahead within their tiles after major page faults. Slow, large
+    /// demand reads leave scheduling to the kernel.
     ///
     /// Result order is unspecified. Consume errors exactly as with a serial
     /// iterator. Returning early disconnects delivery and joins outstanding work;
@@ -706,9 +707,10 @@ impl QueryExecutor {
                 let poll_each_step = query.library.source().prefers_concurrent_tile_reads();
                 let (partitions, index_steps) = cursor.partitions(target)?;
                 #[cfg(all(feature = "mmap", target_os = "linux"))]
-                let read_ahead = prefix_faults
-                    .take()
-                    .map(|s| AtomicBool::new(s.observed_stall()));
+                let read_ahead = prefix_faults.take().map(|s| {
+                    s.speculate()
+                        .map_or_else(std::sync::OnceLock::new, Into::into)
+                });
                 let budget = Arc::new(Budget::new(query.step_limit() - index_steps));
                 let (sender, receiver) = mpsc::sync_channel(queue_capacity);
                 let worker_budget = Arc::clone(&budget);

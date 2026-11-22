@@ -12,7 +12,7 @@ Options:
   --even-zooms                 Use 4x4 even zoom steps (0/2/4/6/8/10/12)
   --target-tile-kib N          Target tile size in KiB (default 16384)
   --max-duplicate-tiles K      Max leaf tiles per border-straddling feature (default 1)
-  --rtree-fanout F             R-tree branch fanout (4..=64, default 8)
+  --rtree-fanout F             R-tree branch fanout (2..=255, default 8)
   --rtree-leaf-size L          R-tree leaf capacity (default 32)
   --memory-limit-mib N         Memory budget in MiB before spilling to disk (default: auto)";
 

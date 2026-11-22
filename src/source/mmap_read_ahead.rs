@@ -7,6 +7,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, ThreadId},
+    time::{Duration, Instant},
 };
 
 const INITIAL_SAMPLE_STEPS: u64 = 512;
@@ -14,11 +15,33 @@ const SAMPLE_INTERVAL: u64 = 16_384;
 const MINIMUM_FAULTS: u64 = 32;
 const HELPER_MINIMUM_FAULTS: u64 = 2;
 const MAX_BLOCKS_PER_FAULT: u64 = 16;
+// A 1 MiB demand read already covers sixteen 64 KiB root hints. Let the
+// kernel keep servicing those reads when each fault also stalls for milliseconds.
+const BULK_BLOCKS_PER_FAULT: u64 = 2048; // Linux accounts input in 512-byte blocks.
+const BULK_WAIT_US_PER_FAULT: u64 = 4_000;
 
 #[derive(Clone, Copy)]
 struct Activity {
     major_faults: u64,
     input_blocks: u64,
+    wall: Instant,
+    cpu: Duration,
+}
+
+impl Activity {
+    /// None means there is not yet enough evidence to start or decline helpers.
+    fn speculate_since(self, before: Self) -> Option<bool> {
+        let faults = self.major_faults.saturating_sub(before.major_faults);
+        if faults < HELPER_MINIMUM_FAULTS {
+            return None;
+        }
+        let blocks = self.input_blocks.saturating_sub(before.input_blocks);
+        let wait = (self.wall - before.wall).saturating_sub(self.cpu.saturating_sub(before.cpu));
+        Some(
+            blocks < faults.saturating_mul(BULK_BLOCKS_PER_FAULT)
+                || wait.as_micros() < u128::from(faults) * u128::from(BULK_WAIT_US_PER_FAULT),
+        )
+    }
 }
 
 #[allow(unsafe_code)]
@@ -30,9 +53,14 @@ fn activity() -> Option<Activity> {
     }
     // SAFETY: the successful call above initialized the structure.
     let usage = unsafe { usage.assume_init() };
+    let cpu_time = |t: libc::timeval| {
+        Duration::from_secs(t.tv_sec as u64) + Duration::from_micros(t.tv_usec as u64)
+    };
     Some(Activity {
         major_faults: u64::try_from(usage.ru_majflt).ok()?,
         input_blocks: u64::try_from(usage.ru_inblock).ok()?,
+        wall: Instant::now(),
+        cpu: cpu_time(usage.ru_utime) + cpu_time(usage.ru_stime),
     })
 }
 
@@ -40,7 +68,7 @@ fn activity() -> Option<Activity> {
 #[cfg(feature = "parallel")]
 pub(crate) struct FaultSample {
     thread: ThreadId,
-    major_faults: u64,
+    start: Activity,
 }
 
 #[cfg(feature = "parallel")]
@@ -48,15 +76,15 @@ impl FaultSample {
     pub(crate) fn now() -> Option<Self> {
         Some(Self {
             thread: thread::current().id(),
-            major_faults: activity()?.major_faults,
+            start: activity()?,
         })
     }
 
-    pub(crate) fn observed_stall(&self) -> bool {
-        self.thread == thread::current().id()
-            && activity().is_some_and(|current| {
-                current.major_faults.saturating_sub(self.major_faults) >= HELPER_MINIMUM_FAULTS
-            })
+    pub(crate) fn speculate(&self) -> Option<bool> {
+        if self.thread != thread::current().id() {
+            return None;
+        }
+        activity()?.speculate_since(self.start)
     }
 }
 
@@ -178,9 +206,15 @@ impl<'a> MappedScan<'a> {
         };
         let faults = current.major_faults.saturating_sub(before.major_faults);
         let blocks = current.input_blocks.saturating_sub(before.input_blocks);
-        // Independent I/O can help on both small and heavily amplified
-        // faults. Preserve the input ratio policy for sequential advice.
-        self.helper_faults_observed |= self.helpers_enabled && faults >= HELPER_MINIMUM_FAULTS;
+        match current.speculate_since(before) {
+            Some(false) => {
+                self.helpers_enabled = false;
+                self.next_sample = u64::MAX;
+                return;
+            }
+            Some(true) => self.helper_faults_observed |= self.helpers_enabled,
+            None => {}
+        }
         // Linux reports block inputs in 512-byte units. A cold mapped scan
         // with little kernel readahead waits for many small reads. FUSE
         // can report major faults without charging the caller any block I/O.

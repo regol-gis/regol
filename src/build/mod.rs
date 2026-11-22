@@ -39,7 +39,7 @@ pub struct BuildOptions {
     /// be duplicated using GOL north/west suppression flags. `1` stores every
     /// feature once in its deepest enclosing tile.
     pub max_duplicate_tiles: usize,
-    /// Maximum children per internal R-tree branch node.
+    /// Maximum children per internal R-tree branch node (2..=255, default 8).
     pub rtree_branch_fanout: usize,
     /// Maximum feature records per R-tree leaf array.
     pub rtree_leaf_size: usize,

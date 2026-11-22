@@ -72,8 +72,9 @@ Key `regol build` flags (`regol build --help` for full details):
   for single placement).
 - `--even-zooms` — use 4×4 even zoom steps (`0/2/4/6/8/10/12`) to halve tile
   pyramid depth.
-- `--rtree-fanout F` / `--rtree-leaf-size L` — configure per-tile R-tree shape
-  (defaults `8` and `32`).
+- `--rtree-fanout F` selects 2–255 children per R-tree branch (default `8`).
+  For example, `--rtree-fanout 32` builds wider branches while retaining the
+  default 32 features per leaf. Set `--rtree-leaf-size L` to tune leaves separately.
 - `--compact-dictionary` — keep only required keys and frequent strings (≥300
   uses) in the global string table for smaller metadata headers.
 
@@ -201,6 +202,11 @@ reads), so you can match memory and I/O behavior to your environment:
 | Memory-mapped file | `source::MappedFile::open(path)` (`mmap` feature) | Maximum warm throughput on immutable local files (`unsafe` contract) |
 | HTTP(S) range reads | `source::HttpSource::open(url)` (`http` feature) | Querying an immutable remote GOL and reusing fetched pages |
 | In-memory / custom | `&[u8]`, `Vec<u8>`, or custom `impl Source` | Embedded fixtures and application-specific storage |
+
+On Linux, eligible memory-mapped scans can overlap filtering with reads of
+upcoming tiles. The reader samples major page faults, input bytes and time
+spent off CPU. When Linux is already fetching large ranges and each fault
+takes milliseconds, the scan leaves read-ahead to the kernel.
 
 Use `DictionaryLoading::OnDemand` via `Library::open_with_dictionary_loading` or
 `Library::with_dictionary_loading` when startup latency matters (e.g. cold
