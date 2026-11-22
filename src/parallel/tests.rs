@@ -765,3 +765,40 @@ fn count_once_matches_serial_and_executor_across_thread_counts() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn try_fold_reduce_once_matches_serial_across_prefixes_and_threads() -> Result<()> {
+    let bytes = include_bytes!("../../tests/fixtures/tiled_global.gol").as_slice();
+    let library = Library::new(bytes)?;
+    for text in ["*", "*[name]", "*[!name]"] {
+        let query = Query::parse(text)?;
+        let prepared = query.prepare(&library)?;
+        let mut expected: Vec<_> = prepared
+            .iter()
+            .map(|f| Ok(f?.id()))
+            .collect::<Result<Vec<_>>>()?;
+        expected.sort_unstable();
+        for threads in [0, 1, 2, 4] {
+            for prefix in [0, 2, 16, 4096] {
+                let mut actual = QueryExecutor::try_fold_reduce_once(
+                    threads,
+                    &prepared,
+                    None,
+                    prefix,
+                    Vec::new,
+                    |mut ids, f| {
+                        ids.push(f.id());
+                        Ok(ids)
+                    },
+                    |mut left, right| {
+                        left.extend(right);
+                        Ok(left)
+                    },
+                )?;
+                actual.sort_unstable();
+                assert_eq!(actual, expected, "threads={threads} prefix={prefix} query={text}");
+            }
+        }
+    }
+    Ok(())
+}

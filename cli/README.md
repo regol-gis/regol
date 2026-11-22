@@ -44,10 +44,13 @@ encoding and compression. Pass `--no-mmap` for safe positioned file reads or
 `--lazy-dictionary` remain accepted for compatibility). Run `regol query --help`
 for the full syntax or `regol --version` to check the installed version.
 
-Large GeoJSON, GeoJSON Lines, WKT and geometry or centroid CSV exports encode
-consecutive feature groups in parallel and write them in query order. Up to 4 MiB of encoded text can be
-queued. Oversized records stream directly to the output. Large PBF exports can
-overlap compression of one block with preparation of the next.
+By default, multi-threaded GeoJSON, GeoJSON Lines, WKT, CSV, and ID exports
+scan and encode spatial partitions in parallel tile order (`--unordered`). Pass
+`--ordered` (or `--threads 1`) to encode consecutive feature groups in parallel
+while preserving serial query order (buffering up to 4 MiB of encoded text and
+streaming oversized records directly). Large XML exports format sorted chunks in
+parallel, and large PBF exports overlap compression of one block with
+preparation of the next.
 
 ### GIS and CSV output
 

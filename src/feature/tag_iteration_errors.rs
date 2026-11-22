@@ -42,3 +42,27 @@ fn borrowed_global_records_match_checked_reads() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn fast_tag_lookup_matches_tag_iteration_for_global_local_and_missing_keys() -> Result<()> {
+    for fixture in [
+        include_bytes!("../../tests/fixtures/basic.gol").as_slice(),
+        include_bytes!("../../tests/fixtures/global.gol").as_slice(),
+        include_bytes!("../../tests/fixtures/query_semantics.gol").as_slice(),
+    ] {
+        let library = Library::new(fixture)?;
+        for feature in library.features() {
+            let feature = feature?;
+            let all: Vec<_> = feature.tags()?.collect::<Result<Vec<_>>>()?;
+            for tag in &all {
+                let first = all
+                    .iter()
+                    .find(|t| t.key == tag.key)
+                    .map(|t| t.value.clone());
+                assert_eq!(feature.tag(&tag.key)?, first);
+            }
+            assert_eq!(feature.tag("definitely_absent_key")?, None);
+        }
+    }
+    Ok(())
+}

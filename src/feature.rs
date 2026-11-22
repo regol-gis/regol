@@ -281,6 +281,9 @@ impl<'a, S: Source> Feature<'a, S> {
     }
     /// Return the first stored tag with this key, in the order of [`Self::tags`].
     pub fn tag(self, key: &str) -> Result<Option<TagValue<'a>>> {
+        if let Some(result) = self.tag_fast(key) {
+            return Ok(result);
+        }
         for tag in self.tags()? {
             let tag = tag?;
             if tag.key == key {
@@ -288,6 +291,96 @@ impl<'a, S: Source> Feature<'a, S> {
             }
         }
         Ok(None)
+    }
+
+    #[inline]
+    fn tile_bytes(self) -> Option<&'a [u8]> {
+        let start = self.tile_start();
+        let len = usize::try_from(self.tile_end().checked_sub(start)?).ok()?;
+        let source = &self.library.source;
+        if let Some(bytes) = source.as_bytes() {
+            let off = usize::try_from(start).ok()?;
+            bytes.get(off..off.checked_add(len)?)
+        } else {
+            source.retained_tail(start)?.get(..len)
+        }
+    }
+
+    #[inline]
+    fn tag_fast(self, key: &str) -> Option<Option<TagValue<'a>>> {
+        let tile = self.tile_bytes()?;
+        let dict = self.library.strings.get()?;
+        let tile_start = self.tile_start();
+        let table = self.checked_tag_table().ok()?;
+        let table_off = usize::try_from(table.checked_sub(tile_start)?).ok()?;
+        let first = u32::from_le_bytes(*tile.get(table_off..)?.first_chunk::<4>()?);
+
+        let mut steps = 0u64;
+        let max_tags = self.library.limits.max_tags;
+
+        if first != 0x8001 {
+            if let Some(target_code) = dict.key_code(key) {
+                let mut off = table_off;
+                loop {
+                    steps += 1;
+                    if steps > max_tags {
+                        return None;
+                    }
+                    let tail = tile.get(off..)?;
+                    let word = u32::from_le_bytes(*tail.first_chunk::<4>()?);
+                    let found = ((word >> 2) & 8191) as u16;
+                    if found == target_code {
+                        let val =
+                            decode_inline_value(tile, dict, off + 2, word & 3, (word >> 16) as u16)?;
+                        return Some(Some(val));
+                    }
+                    if found > target_code || word & 0x8000 != 0 {
+                        break;
+                    }
+                    off += 4 + usize::from((word as u16) & 2);
+                }
+            }
+        }
+
+        if self.tag_pointer & 1 == 0 {
+            return Some(None);
+        }
+
+        let aligned_table = (table & !3).checked_sub(tile_start)? as i64;
+        let mut off = table_off.checked_sub(6)?;
+        let key_bytes = key.as_bytes();
+        loop {
+            steps += 1;
+            if steps > max_tags {
+                return None;
+            }
+            let entry = tile.get(off..off.checked_add(6)?)?;
+            let word = i32::from_le_bytes(entry[2..6].try_into().ok()?);
+            let flags = word & 7;
+            let key_off =
+                usize::try_from(aligned_table.checked_add(i64::from((word & !7) >> 1))?).ok()?;
+            let (&klen, ktail) = tile.get(key_off..)?.split_first()?;
+            if klen >= 128 {
+                return None;
+            }
+            let kslice = ktail.get(..usize::from(klen))?;
+            if kslice == key_bytes {
+                std::str::from_utf8(kslice).ok()?;
+                let val_off = if flags & 2 != 0 {
+                    off.checked_sub(2)?
+                } else {
+                    off
+                };
+                let narrow = u16::from_le_bytes(tile.get(val_off..val_off + 2)?.try_into().ok()?);
+                let val = decode_inline_value(tile, dict, val_off, (flags & 3) as u32, narrow)?;
+                return Some(Some(val));
+            }
+            if flags & 4 != 0 {
+                return Some(None);
+            }
+            let stride = 6 + (flags & 2) as usize;
+            off = off.checked_sub(stride)?;
+        }
     }
     /// Locate a prepared key without decoding values of unrelated tags.
     /// `code` comes from this library's dictionary; absent codes imply a local key.
@@ -611,9 +704,45 @@ pub struct Tag<'a> {
     pub value: TagValue<'a>,
 }
 
+#[inline]
+fn decode_inline_value<'a>(
+    tile: &'a [u8],
+    dict: &'a crate::library::Dictionary,
+    val_off: usize,
+    kind: u32,
+    narrow: u16,
+) -> Option<TagValue<'a>> {
+    match kind {
+        0 => Some(TagValue::Number {
+            mantissa: i32::from(narrow) - 256,
+            scale: 0,
+        }),
+        1 => Some(TagValue::Text(Cow::Borrowed(dict.get(narrow)?))),
+        2 => {
+            let wide = u32::from_le_bytes(*tile.get(val_off..)?.first_chunk::<4>()?);
+            Some(TagValue::Number {
+                mantissa: (wide >> 2) as i32 - 256,
+                scale: (wide & 3) as u8,
+            })
+        }
+        _ => {
+            let delta = i32::from_le_bytes(*tile.get(val_off..)?.first_chunk::<4>()?);
+            let target = val_off.checked_add_signed(isize::try_from(delta).ok()?)?;
+            let (&len, tail) = tile.get(target..)?.split_first()?;
+            if len >= 128 {
+                return None;
+            }
+            let text = std::str::from_utf8(tail.get(..usize::from(len))?).ok()?;
+            Some(TagValue::Text(Cow::Borrowed(text)))
+        }
+    }
+}
+
 /// Fallible iterator over a feature's tag table.
 pub struct Tags<'a, S> {
     feature: Feature<'a, S>,
+    tile_bytes: Option<&'a [u8]>,
+    dictionary: Option<&'a crate::library::Dictionary>,
     table: u64,
     local: bool,
     next: Option<u64>,
@@ -621,74 +750,46 @@ pub struct Tags<'a, S> {
 }
 impl<'a, S: Source> Tags<'a, S> {
     fn new(feature: Feature<'a, S>) -> Result<Self> {
-        let s = &feature.library.source;
         let local = feature.tag_pointer & 1 != 0;
         let table = feature.checked_tag_table()?;
-        let next = if s.u32(table)? == 0x8001 {
+        let tile_bytes = feature.tile_bytes();
+        let dictionary = feature.library.strings.get();
+        let first = if let Some(bytes) = tile_bytes {
+            let off = (table - feature.tile_start()) as usize;
+            if let Some(chunk) = bytes.get(off..).and_then(|b| b.first_chunk::<4>()) {
+                u32::from_le_bytes(*chunk)
+            } else {
+                feature.library.source.u32(table)?
+            }
+        } else {
+            feature.library.source.u32(table)?
+        };
+        let next = if first == 0x8001 {
             if local { Some(add(table, -6)?) } else { None }
         } else {
             Some(table)
         };
         Ok(Self {
             feature,
+            tile_bytes,
+            dictionary,
             table,
             local,
             next,
             steps: 0,
         })
     }
-    #[inline]
-    fn retained_bytes(&self, start: u64) -> Option<&'a [u8]> {
-        let source = &self.feature.library.source;
-        let bytes = if let Some(bytes) = source.as_bytes() {
-            bytes.get(usize::try_from(start).ok()?..)?
-        } else {
-            source.retained_tail(start)?
-        };
-        let tile = usize::try_from(self.feature.tile_end().checked_sub(start)?).ok()?;
-        bytes.get(..bytes.len().min(tile))
-    }
-
-    #[inline]
-    fn short_text(&self, start: u64) -> Option<Cow<'a, str>> {
-        if start < self.feature.tile_start() {
-            return None;
-        }
-        let (&length, tail) = self.retained_bytes(start)?.split_first()?;
-        if length >= 128 {
-            return None;
-        }
-        let text = std::str::from_utf8(tail.get(..usize::from(length))?).ok()?;
-        Some(Cow::Borrowed(text))
-    }
 
     #[inline]
     fn read_global(&mut self, p: u64) -> Option<Tag<'a>> {
-        let lib = self.feature.library;
-        let bytes = self.retained_bytes(p)?;
+        let tile = self.tile_bytes?;
+        let dictionary = self.dictionary?;
+        let off = (p - self.feature.tile_start()) as usize;
+        let bytes = tile.get(off..)?;
         let word = u32::from_le_bytes(*bytes.first_chunk()?);
-        let dictionary = lib.strings.get()?;
         let key = Cow::Borrowed(dictionary.get(((word >> 2) & 8191) as u16)?);
         let narrow = (word >> 16) as u16;
-        let value = match word & 3 {
-            0 => TagValue::Number {
-                mantissa: i32::from(narrow) - 256,
-                scale: 0,
-            },
-            1 => TagValue::Text(Cow::Borrowed(dictionary.get(narrow)?)),
-            kind => {
-                let wide = u32::from_le_bytes(bytes.get(2..6)?.try_into().ok()?);
-                if kind == 2 {
-                    TagValue::Number {
-                        mantissa: (wide >> 2) as i32 - 256,
-                        scale: (wide & 3) as u8,
-                    }
-                } else {
-                    let target = (p + 2).checked_add_signed(i64::from(wide as i32))?;
-                    TagValue::Text(self.short_text(target)?)
-                }
-            }
-        };
+        let value = decode_inline_value(tile, dictionary, off + 2, word & 3, narrow)?;
         self.next = if word & 0x8000 != 0 {
             if self.local {
                 Some(self.table.checked_sub(6)?)
@@ -699,6 +800,41 @@ impl<'a, S: Source> Tags<'a, S> {
             Some(p + 4 + u64::from(word & 2))
         };
         Some(Tag { key, value })
+    }
+
+    #[inline]
+    fn read_local(&mut self, p: u64) -> Option<Tag<'a>> {
+        let tile = self.tile_bytes?;
+        let dictionary = self.dictionary?;
+        let tile_start = self.feature.tile_start();
+        let off = usize::try_from(p.checked_sub(tile_start)?).ok()?;
+        let entry = tile.get(off..off.checked_add(6)?)?;
+        let word = i32::from_le_bytes(entry[2..6].try_into().ok()?);
+        let flags = word & 7;
+        let aligned_table = (self.table & !3).checked_sub(tile_start)? as i64;
+        let key_off =
+            usize::try_from(aligned_table.checked_add(i64::from((word & !7) >> 1))?).ok()?;
+        let (&klen, ktail) = tile.get(key_off..)?.split_first()?;
+        if klen >= 128 {
+            return None;
+        }
+        let key_str = std::str::from_utf8(ktail.get(..usize::from(klen))?).ok()?;
+        let val_off = if flags & 2 != 0 {
+            off.checked_sub(2)?
+        } else {
+            off
+        };
+        let narrow = u16::from_le_bytes(tile.get(val_off..val_off + 2)?.try_into().ok()?);
+        let value = decode_inline_value(tile, dictionary, val_off, (flags & 3) as u32, narrow)?;
+        self.next = if flags & 4 != 0 {
+            None
+        } else {
+            Some(p.checked_sub(u64::from(6 + (flags & 2) as u32))?)
+        };
+        Some(Tag {
+            key: Cow::Borrowed(key_str),
+            value,
+        })
     }
 
     #[inline(never)]
@@ -735,11 +871,15 @@ impl<'a, S: Source> Tags<'a, S> {
             (key, i32::from(word & 3), p + 2)
         };
         let value = f.tag_value(flags, value_ptr)?;
+        if self.dictionary.is_none() {
+            self.dictionary = lib.strings.get();
+        }
         Ok(Tag { key, value })
     }
 }
 impl<'a, S: Source> Iterator for Tags<'a, S> {
     type Item = Result<Tag<'a>>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let p = self.next?;
         self.steps += 1;
@@ -751,6 +891,8 @@ impl<'a, S: Source> Iterator for Tags<'a, S> {
             if let Some(tag) = self.read_global(p) {
                 return Some(Ok(tag));
             }
+        } else if let Some(tag) = self.read_local(p) {
+            return Some(Ok(tag));
         }
         let result = self.read_fallback(p);
         if result.is_err() {

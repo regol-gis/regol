@@ -416,3 +416,91 @@ fn export_empty_results_and_precision_errors() {
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("precision must be an integer"));
 }
+
+#[test]
+fn unordered_flag_exports_same_decoded_records_across_formats() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/fixtures/tiled.gol");
+    let run_tiled = |args: &[&str]| {
+        successful_stdout(
+            Command::new(env!("CARGO_BIN_EXE_regol"))
+                .arg("query")
+                .arg(&fixture)
+                .args(args)
+                .output()
+                .unwrap(),
+        )
+    };
+
+    // IDs
+    let mut ordered_ids: Vec<_> = run_tiled(&["*", "-f", "ids", "--threads", "1"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let mut unordered_ids: Vec<_> =
+        run_tiled(&["*", "-f", "ids", "--threads", "4", "--unordered"])
+            .lines()
+            .map(str::to_owned)
+            .collect();
+    ordered_ids.sort();
+    unordered_ids.sort();
+    assert_eq!(ordered_ids, unordered_ids);
+
+    // GeoJSON
+    let ordered_gj: Value =
+        serde_json::from_str(&run_tiled(&["*", "-f", "geojson", "--threads", "1"])).unwrap();
+    let unordered_gj: Value = serde_json::from_str(&run_tiled(&[
+        "*",
+        "-f",
+        "geojson",
+        "--threads",
+        "4",
+        "--unordered",
+    ]))
+    .unwrap();
+    let mut ordered_features: Vec<_> = ordered_gj["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(Value::to_string)
+        .collect();
+    let mut unordered_features: Vec<_> = unordered_gj["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(Value::to_string)
+        .collect();
+    ordered_features.sort();
+    unordered_features.sort();
+    assert_eq!(ordered_features, unordered_features);
+
+    // GeoJSONL, WKT, CSV
+    for args in [
+        &["*", "-f", "geojsonl"][..],
+        &["*", "-f", "wkt"][..],
+        &["*", "-f", "csv", "--keys", "id,name"][..],
+    ] {
+        let mut ordered_cmd = args.to_vec();
+        ordered_cmd.extend(["--threads", "1"]);
+        let mut parallel_ordered_cmd = args.to_vec();
+        parallel_ordered_cmd.extend(["--threads", "4", "--ordered"]);
+        let mut unordered_cmd = args.to_vec();
+        unordered_cmd.extend(["--threads", "4", "--unordered"]);
+        let ordered_out = run_tiled(&ordered_cmd);
+        assert_eq!(run_tiled(&parallel_ordered_cmd), ordered_out);
+        let mut ordered_lines: Vec<_> = ordered_out.lines().map(str::to_owned).collect();
+        let mut unordered_lines: Vec<_> = run_tiled(&unordered_cmd)
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        if args.contains(&"csv") {
+            assert_eq!(ordered_lines[0], unordered_lines[0]);
+            ordered_lines[1..].sort();
+            unordered_lines[1..].sort();
+        } else {
+            ordered_lines.sort();
+            unordered_lines.sort();
+        }
+        assert_eq!(ordered_lines, unordered_lines);
+    }
+}

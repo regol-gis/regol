@@ -276,10 +276,53 @@ impl<'a, S: Source> WayNodes<'a, S> {
             }
             // IDs follow the coordinate stream; locate them without retaining
             // a second geometry buffer. Subsequent iteration is allocation-free.
-            for _ in 0..ids_remaining {
-                owner.library.source.signed_varint(&mut p)?;
-                owner.library.source.signed_varint(&mut p)?;
-                owner.check(p - 1, 1)?;
+            let mut skipped = false;
+            if let Some(bytes) = owner.library.source.as_bytes() {
+                let start = p as usize;
+                let end = (owner.tile_end() as usize).min(bytes.len());
+                if start <= end {
+                    let slice = &bytes[start..end];
+                    let mut idx = 0usize;
+                    let mut count = ids_remaining.saturating_mul(2);
+                    let mut ok = true;
+                    while count != 0 {
+                        let mut shift = 0u32;
+                        loop {
+                            let Some(&b) = slice.get(idx) else {
+                                ok = false;
+                                break;
+                            };
+                            idx += 1;
+                            if shift == 9 && b > 1 {
+                                ok = false;
+                                break;
+                            }
+                            if b < 128 {
+                                break;
+                            }
+                            shift += 1;
+                            if shift >= 10 {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if !ok {
+                            break;
+                        }
+                        count -= 1;
+                    }
+                    if ok {
+                        p += idx as u64;
+                        skipped = true;
+                    }
+                }
+            }
+            if !skipped {
+                for _ in 0..ids_remaining {
+                    owner.library.source.signed_varint(&mut p)?;
+                    owner.library.source.signed_varint(&mut p)?;
+                    owner.check(p - 1, 1)?;
+                }
             }
             id_pos = Some(p);
         }
@@ -354,6 +397,34 @@ pub(crate) fn read_original_way_node_id<S: Source>(
     p: &mut u64,
     current: &mut i64,
 ) -> Result<u64> {
+    if let Some(bytes) = owner.library.source.as_bytes() {
+        let start = *p as usize;
+        let end = (owner.tile_end() as usize).min(bytes.len());
+        if start < end {
+            let slice = &bytes[start..end];
+            let mut n = 0u64;
+            let mut idx = 0usize;
+            while idx < 10 {
+                let Some(&b) = slice.get(idx) else {
+                    break;
+                };
+                if idx == 9 && b > 1 {
+                    break;
+                }
+                n |= u64::from(b & 127) << (idx * 7);
+                idx += 1;
+                if b < 128 {
+                    *p += idx as u64;
+                    let delta = ((n >> 1) as i64) ^ -((n & 1) as i64);
+                    *current = current
+                        .checked_add(delta)
+                        .ok_or_else(|| Error::invalid(*p, "node ID overflow"))?;
+                    return u64::try_from(*current)
+                        .map_err(|_| Error::invalid(*p, "negative node ID"));
+                }
+            }
+        }
+    }
     *current = current
         .checked_add(owner.library.source.signed_varint(p)?)
         .ok_or_else(|| Error::invalid(*p, "node ID overflow"))?;

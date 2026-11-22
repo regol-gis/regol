@@ -285,6 +285,171 @@ impl QueryExecutor {
         Ok(prefix + suffix)
     }
 
+    /// Run a one-shot reduction, spawning scoped worker threads only when
+    /// multiple partitions remain after `prefix_steps` serial traversal steps.
+    ///
+    /// Small queries finish serially without spawning threads. Larger queries
+    /// fan out across up to `threads` workers (reusing the calling thread as a
+    /// worker) in unspecified partition order while enforcing the library's
+    /// shared traversal-step limit. Each worker initializes its accumulator
+    /// once and reuses it across all partitions it claims.
+    pub fn try_fold_reduce_once<'a, S: Source + Sync, T: Send>(
+        threads: usize,
+        query: &PreparedQuery<'a, '_, S>,
+        bounds: Option<Bounds>,
+        prefix_steps: u64,
+        identity: impl Fn() -> T + Sync,
+        fold: impl Fn(T, Feature<'a, S>) -> Result<T> + Sync,
+        reduce: impl Fn(T, T) -> Result<T> + Sync,
+    ) -> Result<T> {
+        let mut features = query.features(bounds);
+        if threads <= 1 {
+            return query.fold_in(&mut features, || Ok(true), identity(), fold);
+        }
+        let prefix = query.fold_in(
+            &mut features,
+            step_budget(prefix_steps),
+            identity(),
+            &fold,
+        )?;
+        if features.finished() {
+            return Ok(prefix);
+        }
+        let (partitions, index_steps) = features.partitions(threads.saturating_mul(4))?;
+        let work_items = match &partitions {
+            Partitions::Split(parts) => parts.len(),
+            Partitions::Wide { template, tiles } => {
+                tiles.len() + usize::from(template.has_remaining_work())
+            }
+        };
+        let workers = threads.min(work_items.max(1));
+        if workers <= 1 {
+            let mut acc = prefix;
+            let mut limit_remaining = query.step_limit() - index_steps;
+            let mut step = || {
+                if limit_remaining == 0 {
+                    return Err(Error::Limit("spatial traversal steps"));
+                }
+                limit_remaining -= 1;
+                Ok(true)
+            };
+            match partitions {
+                Partitions::Split(parts) => {
+                    for mut part in parts {
+                        acc = query.fold_in(&mut part, &mut step, acc, &fold)?;
+                    }
+                }
+                Partitions::Wide { template, tiles } => {
+                    if template.has_remaining_work() {
+                        let mut rem = template.fork_remaining();
+                        acc = query.fold_in(&mut rem, &mut step, acc, &fold)?;
+                    }
+                    let mut cursor = template.worker_cursor();
+                    for tile in tiles {
+                        cursor.defer_tile(tile);
+                        acc = query.fold_in(&mut cursor, &mut step, acc, &fold)?;
+                    }
+                }
+            }
+            return Ok(acc);
+        }
+
+        let budget = Budget::new(query.step_limit() - index_steps);
+        let next = AtomicUsize::new(0);
+        let results: Vec<Mutex<Option<Result<T>>>> = (0..workers).map(|_| Mutex::new(None)).collect();
+
+        enum WorkSource<'a, S> {
+            Split(Vec<Mutex<Option<Features<'a, S>>>>),
+            Wide {
+                template: Box<Features<'a, S>>,
+                tiles: Vec<DeferredTile>,
+                first_tile: usize,
+            },
+        }
+        let source = match partitions {
+            Partitions::Split(parts) => {
+                WorkSource::Split(parts.into_iter().map(|p| Mutex::new(Some(p))).collect())
+            }
+            Partitions::Wide { template, tiles } => {
+                let first_tile = usize::from(template.has_remaining_work());
+                WorkSource::Wide {
+                    template,
+                    tiles,
+                    first_tile,
+                }
+            }
+        };
+
+        let run_worker = |worker_id: usize, initial: T| {
+            let mut acc = initial;
+            let mut lease = budget.lease();
+            let mut cursor = match &source {
+                WorkSource::Wide { template, .. } => Some(template.worker_cursor()),
+                WorkSource::Split(_) => None,
+            };
+            let outcome: Result<T> = (|| {
+                loop {
+                    if budget.cancelled.load(Ordering::Relaxed) {
+                        return Ok(acc);
+                    }
+                    let idx = next.fetch_add(1, Ordering::Relaxed);
+                    if idx >= work_items {
+                        return Ok(acc);
+                    }
+                    acc = match &source {
+                        WorkSource::Split(parts) => {
+                            let mut part = parts[idx]
+                                .lock()
+                                .unwrap()
+                                .take()
+                                .expect("unique partition index");
+                            query.fold_in(&mut part, || lease.step(), acc, &fold)?
+                        }
+                        WorkSource::Wide {
+                            template,
+                            tiles,
+                            first_tile,
+                        } => {
+                            if let Some(tile_idx) = idx.checked_sub(*first_tile) {
+                                let c = cursor.as_mut().expect("wide worker cursor");
+                                c.defer_tile(tiles[tile_idx]);
+                                query.fold_in(c, || lease.step(), acc, &fold)?
+                            } else {
+                                let mut rem = template.fork_remaining();
+                                query.fold_in(&mut rem, || lease.step(), acc, &fold)?
+                            }
+                        }
+                    };
+                }
+            })();
+            if outcome.is_err() {
+                budget.cancel();
+            }
+            *results[worker_id].lock().unwrap() = Some(outcome);
+        };
+
+        let identity_ref = &identity;
+        let run_worker_ref = &run_worker;
+        std::thread::scope(|scope| {
+            for worker_id in 1..workers {
+                let _ = std::thread::Builder::new().spawn_scoped(scope, move || {
+                    run_worker_ref(worker_id, identity_ref());
+                });
+            }
+            run_worker_ref(0, prefix);
+        });
+
+        let mut slots = results.into_iter().filter_map(|s| s.into_inner().unwrap());
+        let mut total = match slots.next() {
+            Some(first) => first?,
+            None => identity(),
+        };
+        for res in slots {
+            total = reduce(total, res?)?;
+        }
+        Ok(total)
+    }
+
     /// Reduce fields on workers without queueing individual feature handles.
     ///
     /// `identity` may be called multiple times, including for empty partitions.

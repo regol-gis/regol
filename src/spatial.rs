@@ -556,17 +556,17 @@ impl<'a, S: Source> Features<'a, S> {
             if partition.work.len() == 1 {
                 let work = partition.work.pop().expect("one work item");
                 // Loading a deferred payload completes the tile-index step
-                // already counted above. Tree expansion still costs one step.
-                if !matches!(work, Work::Payload { .. }) {
-                    self.steps += 1;
-                    if self.steps > self.library.limits.max_traversal_steps {
-                        return Err(Error::Limit("spatial traversal steps"));
-                    }
-                }
+                // already counted above. Root and branch expansions charge one
+                // step per entry visited across the entire table or R-tree node
+                // so sibling subtrees distribute evenly without tail stragglers.
                 match work {
                     Work::Payload { start, bounds } => partition.load_tile(start, bounds)?,
-                    Work::Roots { p, node } => partition.expand_root(p, node)?,
-                    Work::Branch { p, node, depth } => partition.expand_branch(p, node, depth)?,
+                    Work::Roots { p, node } => {
+                        partition.expand_roots_for_partition(p, node, &mut self.steps)?
+                    }
+                    Work::Branch { p, node, depth } => {
+                        partition.expand_branch_for_partition(p, node, depth, &mut self.steps)?
+                    }
                     _ => unreachable!("tile work was already partitioned"),
                 }
             }
@@ -656,10 +656,60 @@ impl<'a, S: Source> Features<'a, S> {
         }
     }
     #[cfg(feature = "parallel")]
-    fn expand_root(&mut self, p: u64, node: bool) -> Result<()> {
-        let (more, target) = self.root(p)?;
-        self.push_root(p, node, more, target);
-        Ok(())
+    fn expand_roots_for_partition(&mut self, mut p: u64, node: bool, steps: &mut u64) -> Result<()> {
+        loop {
+            *steps += 1;
+            if *steps > self.library.limits.max_traversal_steps {
+                return Err(Error::Limit("spatial traversal steps"));
+            }
+            let (more, target) = self.root(p)?;
+            if let Some(target) = target {
+                self.work.push(Work::Branch {
+                    p: target,
+                    node,
+                    depth: 0,
+                });
+            }
+            if !more {
+                return Ok(());
+            }
+            p += 8;
+        }
+    }
+    #[cfg(feature = "parallel")]
+    fn expand_branch_for_partition(
+        &mut self,
+        mut p: u64,
+        node: bool,
+        depth: usize,
+        steps: &mut u64,
+    ) -> Result<()> {
+        loop {
+            *steps += 1;
+            if *steps > self.library.limits.max_traversal_steps {
+                return Err(Error::Limit("spatial traversal steps"));
+            }
+            if depth >= self.library.limits.max_tree_depth {
+                return Err(Error::Limit("R-tree depth"));
+            }
+            let (word, bbox) = self.branch_record(p)?;
+            if !self.prune || self.bounds.intersects(bbox) {
+                let target = add(p, (word & !3) as i64)?;
+                if word & 2 != 0 {
+                    self.work.push(Work::Leaf { p: target, node });
+                } else {
+                    self.work.push(Work::Branch {
+                        p: target,
+                        node,
+                        depth: depth + 1,
+                    });
+                }
+            }
+            if word & 1 != 0 {
+                return Ok(());
+            }
+            p += 20;
+        }
     }
     // Rejected roots are consecutive records. Keep scanning in place until
     // there is a subtree to visit or the caller's traversal budget runs out.

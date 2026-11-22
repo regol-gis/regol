@@ -1,136 +1,271 @@
-use super::EncodeResult;
-use rayon::{ThreadPoolBuilder, prelude::*};
+use super::{EncodeResult, Scratch};
 use regol::{Feature, source::Source};
-use std::io::{self, Write};
+use std::{
+    io::Write,
+    sync::{
+        Condvar, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+};
 
 pub(super) const CHUNK_SIZE: usize = 256;
-pub(super) const BATCH_SIZE: usize = 8 * CHUNK_SIZE;
+const NUM_CHUNKS: usize = 8;
+pub(super) const BATCH_SIZE: usize = NUM_CHUNKS * CHUNK_SIZE;
 pub(super) const MIN_PARALLEL_SIZE: usize = 2 * CHUNK_SIZE;
 const CHUNK_BYTE_LIMIT: usize = 512 * 1024;
+
+// At most eight chunks are pending at a time, so parallel buffering retains at
+// most 4 MiB of encoded bytes across batches regardless of feature size.
+struct Slot<F> {
+    features: Vec<F>,
+    buffer: Vec<u8>,
+    result: EncodeResult<usize>,
+    first: bool,
+}
+
+impl<F> Slot<F> {
+    fn new() -> Self {
+        Self {
+            features: Vec::with_capacity(CHUNK_SIZE),
+            buffer: Vec::with_capacity(64 * 1024),
+            result: Ok(0),
+            first: false,
+        }
+    }
+}
+
+struct SharedState {
+    epoch: usize,
+    active_chunks: usize,
+    spawned_count: usize,
+    done: bool,
+    completed_workers: usize,
+}
 
 pub(super) fn write<'a, S: Source + Sync + 'a, W: Write>(
     features: impl IntoIterator<Item = regol::Result<Feature<'a, S>>>,
     output: &mut W,
     threads: usize,
-    stream: impl Fn(&mut W, Feature<'a, S>, bool) -> EncodeResult<()>,
-    encode: impl Fn(&mut ChunkBytes, Feature<'a, S>, bool) -> EncodeResult<()> + Sync,
+    stream: impl Fn(&mut W, Feature<'a, S>, bool, &mut Vec<u8>, &mut Scratch) -> EncodeResult<()>,
+    encode: impl Fn(&mut Vec<u8>, Feature<'a, S>, bool, &mut Scratch) -> EncodeResult<()> + Sync,
 ) -> EncodeResult<()> {
     let mut features = features.into_iter();
-    let mut batch = Vec::new();
-    let pool = std::cell::OnceCell::new();
     let mut first = true;
-    loop {
-        batch.clear();
-        let mut query_error = None;
-        for feature in features.by_ref().take(BATCH_SIZE) {
-            match feature {
-                Ok(feature) => batch.push(feature),
-                Err(error) => {
-                    query_error = Some(error);
+    let mut serial_buf = Vec::with_capacity(64 * 1024);
+    let mut scratch = Scratch::default();
+
+    let slots: Vec<Mutex<Slot<Feature<'a, S>>>> =
+        (0..NUM_CHUNKS).map(|_| Mutex::new(Slot::new())).collect();
+    let next_chunk = AtomicUsize::new(0);
+    let state = (
+        Mutex::new(SharedState {
+            epoch: 0,
+            active_chunks: 0,
+            spawned_count: 0,
+            done: false,
+            completed_workers: 0,
+        }),
+        Condvar::new(),
+    );
+
+    thread::scope(|scope| {
+        let mut spawned = 0usize;
+        let encode_ref = &encode;
+        let slots_ref = &slots;
+        let next_ref = &next_chunk;
+        let state_ref = &state;
+
+        let run_worker = |worker_scratch: &mut Scratch, active_chunks: usize| {
+            loop {
+                let idx = next_ref.fetch_add(1, Ordering::Relaxed);
+                if idx >= active_chunks {
+                    break;
+                }
+                let mut slot = slots_ref[idx].lock().unwrap();
+                let is_first = slot.first;
+                let Slot {
+                    features,
+                    buffer,
+                    result,
+                    ..
+                } = &mut *slot;
+                buffer.clear();
+                *result = encode_chunk(
+                    features,
+                    buffer,
+                    is_first,
+                    CHUNK_BYTE_LIMIT,
+                    encode_ref,
+                    worker_scratch,
+                );
+            }
+        };
+
+        let result: EncodeResult<()> = (|| loop {
+            let mut total = 0usize;
+            let mut active_chunks = 0usize;
+            let mut query_error = None;
+            for slot_mutex in slots_ref {
+                let mut slot = slot_mutex.lock().unwrap();
+                slot.features.clear();
+                slot.first = first && active_chunks == 0;
+                for feature in features.by_ref().take(CHUNK_SIZE) {
+                    match feature {
+                        Ok(feature) => slot.features.push(feature),
+                        Err(error) => {
+                            query_error = Some(error);
+                            break;
+                        }
+                    }
+                }
+                if slot.features.is_empty() {
+                    break;
+                }
+                total += slot.features.len();
+                active_chunks += 1;
+                if query_error.is_some() || slot.features.len() < CHUNK_SIZE {
                     break;
                 }
             }
-        }
-        // Build the pool on the first substantial batch. Resource-constrained
-        // hosts can still finish an export on the calling thread.
-        let active_pool = if batch.len() >= MIN_PARALLEL_SIZE {
-            pool.get_or_init(|| {
-                ThreadPoolBuilder::new()
-                    .num_threads(threads.min(batch.len().div_ceil(CHUNK_SIZE)))
-                    .build()
-                    .ok()
-            })
-            .as_ref()
-        } else {
-            None
-        };
-        if let Some(pool) = active_pool {
-            let chunks: Vec<_> = pool.install(|| {
-                batch
-                    .par_chunks(CHUNK_SIZE)
-                    .enumerate()
-                    .map(|(index, chunk)| encode_chunk(chunk, first && index == 0, &encode))
-                    .collect()
-            });
-            for (chunk, (bytes, encoded)) in batch.chunks(CHUNK_SIZE).zip(chunks) {
-                if !bytes.buffer.is_empty() {
-                    output.write_all(&bytes.buffer)?;
-                    first = false;
+
+            if total >= MIN_PARALLEL_SIZE && threads > 1 {
+                let want_workers = threads.min(active_chunks).saturating_sub(1);
+                while spawned < want_workers {
+                    let spawned_epoch = state_ref.0.lock().unwrap().epoch;
+                    if thread::Builder::new()
+                        .spawn_scoped(scope, move || {
+                            let mut worker_scratch = Scratch::default();
+                            let mut seen_epoch = spawned_epoch;
+                            loop {
+                                let active = {
+                                    let mut guard = state_ref.0.lock().unwrap();
+                                    while guard.epoch == seen_epoch && !guard.done {
+                                        guard = state_ref.1.wait(guard).unwrap();
+                                    }
+                                    if guard.done {
+                                        return;
+                                    }
+                                    seen_epoch = guard.epoch;
+                                    guard.active_chunks
+                                };
+                                run_worker(&mut worker_scratch, active);
+                                let mut guard = state_ref.0.lock().unwrap();
+                                guard.completed_workers += 1;
+                                if guard.completed_workers == guard.spawned_count {
+                                    state_ref.1.notify_all();
+                                }
+                            }
+                        })
+                        .is_ok()
+                    {
+                        spawned += 1;
+                    } else {
+                        break;
+                    }
                 }
-                // Stream the rest of any chunk that reached its byte limit.
-                for &feature in &chunk[encoded?..] {
-                    stream(output, feature, first)?;
-                    first = false;
+
+                if spawned > 0 {
+                    next_ref.store(0, Ordering::Relaxed);
+                    {
+                        let mut guard = state_ref.0.lock().unwrap();
+                        guard.active_chunks = active_chunks;
+                        guard.spawned_count = spawned;
+                        guard.completed_workers = 0;
+                        guard.epoch += 1;
+                        state_ref.1.notify_all();
+                    }
+                    // Main thread participates as worker 0.
+                    run_worker(&mut scratch, active_chunks);
+                    {
+                        let mut guard = state_ref.0.lock().unwrap();
+                        while guard.completed_workers < spawned {
+                            guard = state_ref.1.wait(guard).unwrap();
+                        }
+                    }
+                    for slot_mutex in &slots_ref[..active_chunks] {
+                        let mut slot = slot_mutex.lock().unwrap();
+                        if !slot.buffer.is_empty() {
+                            output.write_all(&slot.buffer)?;
+                            first = false;
+                        }
+                        let encoded = std::mem::replace(&mut slot.result, Ok(0))?;
+                        for &feature in &slot.features[encoded..] {
+                            stream(output, feature, first, &mut serial_buf, &mut scratch)?;
+                            first = false;
+                        }
+                    }
+                    if !serial_buf.is_empty() {
+                        output.write_all(&serial_buf)?;
+                        serial_buf.clear();
+                    }
+                } else {
+                    for slot_mutex in &slots_ref[..active_chunks] {
+                        let slot = slot_mutex.lock().unwrap();
+                        for &feature in &slot.features {
+                            stream(output, feature, first, &mut serial_buf, &mut scratch)?;
+                            first = false;
+                        }
+                    }
+                    if !serial_buf.is_empty() {
+                        output.write_all(&serial_buf)?;
+                        serial_buf.clear();
+                    }
+                }
+            } else {
+                for slot_mutex in &slots_ref[..active_chunks] {
+                    let slot = slot_mutex.lock().unwrap();
+                    for &feature in &slot.features {
+                        stream(output, feature, first, &mut serial_buf, &mut scratch)?;
+                        first = false;
+                    }
+                }
+                if !serial_buf.is_empty() {
+                    output.write_all(&serial_buf)?;
+                    serial_buf.clear();
                 }
             }
-        } else {
-            for &feature in &batch {
-                stream(output, feature, first)?;
-                first = false;
+
+            if let Some(error) = query_error {
+                return Err(error.into());
             }
+            if total < BATCH_SIZE {
+                return Ok(());
+            }
+        })();
+
+        if spawned > 0 {
+            let mut guard = state_ref.0.lock().unwrap();
+            guard.done = true;
+            state_ref.1.notify_all();
         }
-        if let Some(error) = query_error {
-            return Err(error.into());
-        }
-        if batch.len() < BATCH_SIZE {
-            return Ok(());
-        }
-    }
+        result
+    })
 }
 
-fn encode_chunk<'a, S: Source>(
-    features: &[Feature<'a, S>],
+fn encode_chunk<T: Copy>(
+    items: &[T],
+    buffer: &mut Vec<u8>,
     first: bool,
-    encode: &impl Fn(&mut ChunkBytes, Feature<'a, S>, bool) -> EncodeResult<()>,
-) -> (ChunkBytes, EncodeResult<usize>) {
-    let mut bytes = ChunkBytes {
-        buffer: Vec::with_capacity(64 * 1024),
-        overflowed: false,
-    };
-    for (index, &feature) in features.iter().enumerate() {
-        let start = bytes.buffer.len();
-        if let Err(error) = encode(&mut bytes, feature, first && index == 0) {
-            if bytes.overflowed {
-                bytes.buffer.truncate(start);
-                return (bytes, Ok(index));
+    limit: usize,
+    encode: &impl Fn(&mut Vec<u8>, T, bool, &mut Scratch) -> EncodeResult<()>,
+    scratch: &mut Scratch,
+) -> EncodeResult<usize> {
+    for (index, &item) in items.iter().enumerate() {
+        let start = buffer.len();
+        if start >= limit {
+            return Ok(index);
+        }
+        encode(buffer, item, first && index == 0, scratch)?;
+        if buffer.len() > limit {
+            buffer.truncate(start);
+            if buffer.capacity() > limit {
+                buffer.shrink_to(limit);
             }
-            return (bytes, Err(error));
+            return Ok(index);
         }
     }
-    (bytes, Ok(features.len()))
-}
-
-// At most eight chunks are pending at a time, so parallel buffering uses up
-// to 4 MiB of encoded bytes regardless of the size of individual features.
-pub(super) struct ChunkBytes {
-    buffer: Vec<u8>,
-    overflowed: bool,
-}
-
-impl Write for ChunkBytes {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.write_all(bytes)?;
-        Ok(bytes.len())
-    }
-
-    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        let len = self.buffer.len();
-        let capacity = self.buffer.capacity();
-        if bytes.len() > capacity - len {
-            if bytes.len() > CHUNK_BYTE_LIMIT - len {
-                self.overflowed = true;
-                return Err(io::ErrorKind::WriteZero.into());
-            }
-            let capacity = (capacity * 2).max(len + bytes.len()).min(CHUNK_BYTE_LIMIT);
-            self.buffer.reserve_exact(capacity - len);
-        }
-        self.buffer.extend_from_slice(bytes);
-        Ok(())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+    Ok(items.len())
 }
 
 #[cfg(test)]
@@ -138,22 +273,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chunk_bytes_stops_at_the_limit_after_uneven_growth() {
-        let mut output = ChunkBytes {
-            buffer: Vec::with_capacity(64 * 1024),
-            overflowed: false,
-        };
-        let bytes = vec![b'x'; CHUNK_BYTE_LIMIT];
-        for count in [180_000, 150_000, 100_000, CHUNK_BYTE_LIMIT - 430_000] {
-            output.write_all(&bytes[..count]).unwrap();
-        }
-        assert_eq!(output.buffer, bytes);
-        assert_eq!(output.buffer.capacity(), CHUNK_BYTE_LIMIT);
-        assert_eq!(
-            output.write_all(b"x").unwrap_err().kind(),
-            io::ErrorKind::WriteZero
-        );
-        assert!(output.overflowed);
-        assert_eq!(output.buffer, bytes);
+    fn encode_chunk_truncates_at_limit_and_caps_retained_capacity() {
+        let mut buffer = Vec::with_capacity(64);
+        let mut scratch = Scratch::default();
+        let items = [40usize, 50, 200, 30];
+        let encoded = encode_chunk(
+            &items,
+            &mut buffer,
+            true,
+            100,
+            &|out, size, _, _| {
+                out.resize(out.len() + size, b'x');
+                Ok(())
+            },
+            &mut scratch,
+        )
+        .unwrap();
+        assert_eq!(encoded, 2);
+        assert_eq!(buffer.len(), 90);
+        assert!(buffer.capacity() <= 100);
+
+        // An oversized first item yields zero buffered items so the caller streams it.
+        buffer.clear();
+        let encoded = encode_chunk(
+            &[256usize, 10],
+            &mut buffer,
+            true,
+            100,
+            &|out, size, _, _| {
+                out.resize(out.len() + size, b'y');
+                Ok(())
+            },
+            &mut scratch,
+        )
+        .unwrap();
+        assert_eq!(encoded, 0);
+        assert!(buffer.is_empty());
+        assert!(buffer.capacity() <= 100);
     }
 }

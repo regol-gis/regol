@@ -22,7 +22,7 @@ const USAGE: &str = "Usage:
   regol query FILE_OR_URL GOQL [--area GEOJSON] [--bbox WEST,SOUTH,EAST,NORTH]
               [-f count|ids|xml|pbf|geojson|geojsonl|wkt|csv]
               [--keys KEYS] [--columns COLUMNS] [--precision DIGITS]
-              [--complete-relations TYPES] [--threads N]
+              [--complete-relations TYPES] [--threads N] [--unordered|--ordered]
               [--no-mmap] [--eager-dictionary] [--http-page-kib N]
   regol info FILE_OR_URL
   regol check FILE_OR_URL
@@ -39,6 +39,9 @@ Use -R or --complete-relations to specify which relation types to complete in
 spatial PBF exports. Accepts all, none, or comma-separated types (default multipolygon).
 Use -j or --threads to set the CPU budget for counts and parallel exports (default: available CPUs).
 --threads 1 keeps encoding and PBF compression on the calling thread.
+--unordered (default for multi-threaded GeoJSON, GeoJSONL, WKT, CSV, and ID
+exports) scans and encodes spatial partitions in parallel tile order.
+Use --ordered (or --threads 1) to preserve serial query order.
 HTTP(S) URLs use cached byte-range GETs. --http-page-kib sets the range size
 for URL queries (power of two, 4–16384 KiB). By default the first 128 KiB
 transfer determines the range size for that source.
@@ -65,6 +68,7 @@ struct Options {
     http_page_bytes: Option<usize>,
     dictionary: DictionaryLoading,
     threads: Option<usize>,
+    unordered: bool,
 }
 
 impl Options {
@@ -104,6 +108,7 @@ impl Options {
             http_page_bytes: None,
             dictionary: DictionaryLoading::OnDemand,
             threads: None,
+            unordered: true,
         };
         while let Some(arg) = args.next() {
             let arg = arg.to_str().ok_or("option must be UTF-8")?;
@@ -199,6 +204,8 @@ impl Options {
                     }
                     options.threads = Some(threads);
                 }
+                "--unordered" if inline.is_none() => options.unordered = true,
+                "--ordered" if inline.is_none() => options.unordered = false,
                 _ => return Err(format!("unknown option {arg}").into()),
             }
         }
@@ -228,7 +235,7 @@ fn run<S: Source + Sync>(
     library: &Library<S>,
     options: &Options,
     area: Option<&Area>,
-    output: &mut impl Write,
+    output: &mut (impl Write + Send),
 ) -> Result<(), Box<dyn Error>> {
     let prepared = options.query.prepare(library)?;
     let bounds = options.bounds.or_else(|| area.map(Area::bounds));
@@ -236,9 +243,11 @@ fn run<S: Source + Sync>(
         let threads = options.query_threads();
         let count = match (area, bounds) {
             (Some(area), Some(bounds)) if threads > 1 && library.tile_count() > 1 => {
-                QueryExecutor::new(threads)?.try_fold_reduce(
+                QueryExecutor::try_fold_reduce_once(
+                    threads,
                     &prepared,
                     Some(bounds),
+                    4096,
                     || 0u64,
                     |count, feature| Ok(count + u64::from(area.intersects_feature(feature)?)),
                     |left, right| Ok(left + right),
@@ -252,6 +261,31 @@ fn run<S: Source + Sync>(
             _ => QueryExecutor::count_once(threads, &prepared, bounds)?,
         };
         writeln!(output, "{count}")?;
+    } else if options.unordered
+        && options.query_threads() > 1
+        && library.tile_count() > 1
+        && matches!(options.format, Format::Ids | Format::Text(_))
+    {
+        let threads = options.query_threads();
+        match options.format {
+            Format::Ids => {
+                export::text::write_ids_partitioned(&prepared, bounds, area, output, threads)
+                    .map_err(|error| error as Box<dyn Error>)?;
+            }
+            Format::Text(format) => {
+                export::text::write_partitioned(
+                    &prepared,
+                    bounds,
+                    area,
+                    output,
+                    format,
+                    &options.text,
+                    threads,
+                )
+                .map_err(|error| error as Box<dyn Error>)?;
+            }
+            Format::Count | Format::Export(_) => unreachable!(),
+        }
     } else {
         // Both public iterators draw from the same query plan. A world search
         // would also decode and validate bounds for otherwise unbounded queries.
@@ -354,7 +388,7 @@ fn execute() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let area = options.area.as_deref().map(Area::open).transpose()?;
-    let mut output = BufWriter::with_capacity(128 * 1024, io::stdout().lock());
+    let mut output = BufWriter::with_capacity(128 * 1024, io::stdout());
     if let Some(url) = http_url(options.file.as_os_str()) {
         let source = match options.http_page_bytes {
             Some(size) => regol::source::HttpSource::with_page_size(url, size)?,

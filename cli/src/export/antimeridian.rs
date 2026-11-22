@@ -81,7 +81,7 @@ pub(super) fn degrees(point: Point) -> Coord {
     }
 }
 
-fn crosses(points: &[Point]) -> bool {
+pub(super) fn crosses(points: &[Point]) -> bool {
     points
         .windows(2)
         .any(|edge| edge[0].x.abs_diff(edge[1].x) > i32::MAX as u32)

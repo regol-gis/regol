@@ -1,10 +1,10 @@
-use regol::units::angle::degree;
 use regol::{Feature, FeatureType, Point, TagValue, source::Source};
 use rustc_hash::FxHashSet;
 use std::{io::Write, str::FromStr};
 
 mod antimeridian;
 mod pbf;
+mod projection;
 pub(super) mod text;
 mod xml;
 
@@ -66,7 +66,7 @@ impl Completion {
 
 pub(super) type AreaFilter<'a, 'f, S> = dyn Fn(Feature<'a, S>) -> regol::Result<bool> + 'f;
 
-pub(super) fn export<'a, S: Source + 'a>(
+pub(super) fn export<'a, S: Source + Sync + 'a>(
     features: impl IntoIterator<Item = regol::Result<Feature<'a, S>>>,
     mut writer: impl Write,
     format: Format,
@@ -83,7 +83,7 @@ pub(super) fn export<'a, S: Source + 'a>(
     };
     let export = Export::collect(features, has_way_node_ids, completion, within_area)?;
     match format {
-        Format::Xml => xml::write(&export, &mut writer)?,
+        Format::Xml => xml::write(&export, &mut writer, threads)?,
         Format::Pbf => pbf::write(&export, &mut writer, threads)?,
     }
     writer.flush()?;
@@ -266,11 +266,7 @@ impl<'a, S: Source> Export<'a, S> {
 }
 
 fn osm_coordinates(point: Point) -> (i64, i64) {
-    let position = point.lon_lat();
-    (
-        (position.latitude.get::<degree>() * 1e7).round() as i64,
-        (position.longitude.get::<degree>() * 1e7).round() as i64,
-    )
+    projection::osm_coordinates_fast(point)
 }
 
 pub(crate) fn id_prefix(kind: FeatureType) -> u8 {
