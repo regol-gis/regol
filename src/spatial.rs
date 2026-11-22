@@ -233,6 +233,7 @@ pub struct Features<'a, S> {
     leaf: Option<(u64, bool)>,
     bounds: Bounds,
     prune: bool,
+    pub(crate) min_branch_width: u32,
     tile: TileExtent,
     duplicate_flags: u16,
     steps: u64,
@@ -262,6 +263,7 @@ impl<'a, S: Source> Features<'a, S> {
             leaf: None,
             bounds: bounds.unwrap_or(Bounds::WORLD),
             prune: bounds.is_some(),
+            min_branch_width: 0,
             tile: TileExtent::default(),
             duplicate_flags: 0,
             steps: 0,
@@ -614,6 +616,7 @@ impl<'a, S: Source> Features<'a, S> {
             leaf: None,
             bounds: self.bounds,
             prune: self.prune,
+            min_branch_width: self.min_branch_width,
             tile: self.tile,
             duplicate_flags: self.duplicate_flags,
             steps: 0,
@@ -746,7 +749,10 @@ impl<'a, S: Source> Features<'a, S> {
             return Err(Error::Limit("R-tree depth"));
         }
         let (word, bbox) = self.branch_record(p)?;
-        let target = if !self.prune || self.bounds.intersects(bbox) {
+        let target = if !self.prune
+            || (self.bounds.intersects(bbox)
+                && bbox.max.x.abs_diff(bbox.min.x) >= self.min_branch_width)
+        {
             Some(add(p, (word & !3) as i64)?)
         } else {
             None

@@ -57,6 +57,7 @@ impl Types {
 
 #[derive(Clone, Debug)]
 enum Test {
+    Present,
     Truth(bool),
     Equal { values: Vec<Literal>, negate: bool },
     Numeric { op: OrderingOp, value: f64 },
@@ -370,6 +371,13 @@ enum LocalValueTest {
     MixedEquality,
 }
 impl Predicate {
+    /// Match any stored tag with this key, for all types and values.
+    pub fn present(key: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            test: Test::Present,
+        }
+    }
     /// GOQL truth test: present and not equal to `no`. Empty values are true.
     pub fn truthy(key: impl Into<String>) -> Self {
         Self {
@@ -461,6 +469,7 @@ impl Predicate {
     }
     fn local_value_test(&self, dictionary: &crate::library::Dictionary) -> LocalValueTest {
         match &self.test {
+            Test::Present => LocalValueTest::Constant(true),
             Test::Truth(want) if dictionary.has_global_value("no") => {
                 LocalValueTest::Constant(*want)
             }
@@ -510,6 +519,7 @@ impl Predicate {
                     != *negate
             }
             LocalValueTest::Text => match &self.test {
+                Test::Present => true,
                 Test::Truth(want) => (bytes != b"no") == *want,
                 Test::Equal { values, negate } => {
                     values.iter().any(|literal| literal.matches_bytes(bytes)) != *negate
@@ -573,6 +583,7 @@ impl Predicate {
     }
     fn matches_value(&self, value: Option<TagValue<'_>>) -> bool {
         match &self.test {
+            Test::Present => value.is_some(),
             Test::Truth(want) => {
                 value
                     .as_ref()

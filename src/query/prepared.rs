@@ -32,7 +32,8 @@ impl Query {
                 let code = dictionary.key_code(&predicate.key);
                 let requires_presence = matches!(
                     predicate.test,
-                    Test::Truth(true)
+                    Test::Present
+                        | Test::Truth(true)
                         | Test::Equal { negate: false, .. }
                         | Test::Numeric { .. }
                         | Test::Regex { negate: false, .. }
@@ -188,6 +189,7 @@ impl Predicate {
             }
         };
         let invert = match &self.test {
+            Test::Present => true,
             Test::Truth(want) => {
                 add_literal("no");
                 *want
@@ -1371,13 +1373,32 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         &self,
         bounds: Option<Bounds>,
     ) -> impl std::iter::FusedIterator<Item = Result<Feature<'a, S>>> + '_ {
+        self.execute_with_branch_width(bounds, 0)
+    }
+
+    /// Traverse only R-tree branches that can contain a feature at least this wide
+    /// in projected X units. Surviving leaves can still contain narrower features.
+    pub fn candidates_in_bounds_with_min_width(
+        &self,
+        bounds: Bounds,
+        min_width: u32,
+    ) -> impl std::iter::FusedIterator<Item = Result<Feature<'a, S>>> + '_ {
+        self.execute_with_branch_width(Some(bounds), min_width)
+    }
+
+    fn execute_with_branch_width(
+        &self,
+        bounds: Option<Bounds>,
+        min_branch_width: u32,
+    ) -> impl std::iter::FusedIterator<Item = Result<Feature<'a, S>>> + '_ {
         let mut observation = None;
         let mut seen = 0;
         let mut stream = if let Some(indexed) = self.indexed_matches(bounds) {
             StreamPlan::Indexed(indexed)
         } else {
             observation = self.scan_observation(bounds);
-            let features = self.features(bounds);
+            let mut features = self.features(bounds);
+            features.min_branch_width = min_branch_width;
             #[cfg(all(feature = "mmap", target_os = "linux"))]
             let features = features.enable_mapped_ahead();
             match &self.plan {
