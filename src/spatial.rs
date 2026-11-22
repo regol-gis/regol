@@ -65,6 +65,21 @@ impl Bounds {
     pub fn contains(self, p: Point) -> bool {
         p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
     }
+    pub(crate) fn of_tile(col: u32, row: u32, zoom: u8) -> Self {
+        let size = 1i64 << (32 - zoom);
+        let left = i64::from(i32::MIN) + i64::from(col) * size;
+        let top = i64::from(i32::MAX) - i64::from(row) * size;
+        Self {
+            min: Point {
+                x: left as i32,
+                y: (top - size + 1) as i32,
+            },
+            max: Point {
+                x: (left + size - 1) as i32,
+                y: top as i32,
+            },
+        }
+    }
     pub(crate) fn read<S: Source>(s: &S, p: u64) -> Result<Self> {
         let b = s.array::<16>(p)?;
         Self::from_record(&b)
@@ -148,23 +163,6 @@ struct Tile {
     level: usize,
     col: u32,
     row: u32,
-}
-impl Tile {
-    fn bounds(self, zoom: u8) -> Bounds {
-        let size = 1i64 << (32 - zoom);
-        let left = i64::from(i32::MIN) + i64::from(self.col) * size;
-        let top = i64::from(i32::MAX) - i64::from(self.row) * size;
-        Bounds {
-            min: Point {
-                x: left as i32,
-                y: (top - size + 1) as i32,
-            },
-            max: Point {
-                x: (left + size - 1) as i32,
-                y: top as i32,
-            },
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -335,7 +333,7 @@ impl<'a, S: Source> Features<'a, S> {
     fn resolve_index_tile(&mut self, tile: &mut Tile) -> Result<Option<(u64, Bounds)>> {
         let lib = self.library;
 
-        let bbox = tile.bounds(lib.zooms[tile.level]);
+        let bbox = Bounds::of_tile(tile.col, tile.row, lib.zooms[tile.level]);
         if !self.bounds.intersects(bbox) {
             return Ok(None);
         }
@@ -372,9 +370,7 @@ impl<'a, S: Source> Features<'a, S> {
             }
         }
         if word & 3 != 2 || word >> 2 == 0 {
-            return Err(Error::MissingTile(
-                ((tile.entry - lib.tile_index) / 4) as u32,
-            ));
+            return Err(lib.missing_tile(((tile.entry - lib.tile_index) / 4) as u32));
         }
         Ok(Some((u64::from(word >> 2) * 4096, bbox)))
     }

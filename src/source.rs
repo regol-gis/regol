@@ -34,6 +34,10 @@ pub trait Source {
     fn prefers_concurrent_tile_reads(&self) -> bool {
         false
     }
+    /// Notify an incremental source that a traversal needs a missing tile.
+    #[cfg(feature = "gob")]
+    #[doc(hidden)]
+    fn missing_tile(&self, _tip: u32) {}
     /// Optional zero-copy access; the returned slice must cover the whole source.
     #[inline]
     fn as_bytes(&self) -> Option<&[u8]> {

@@ -69,6 +69,7 @@ build = [
     "dep:anyhow", "dep:flate2", "dep:getrandom",
     "dep:prost", "dep:tempfile",
 ]
+gob = ["dep:flate2"]
 mmap = ["dep:memmap2", "dep:libc"]
 parallel = ["dep:rayon"]
 way-checkpoints = ["dep:sha2"]
@@ -92,3 +93,7 @@ undocumented_unsafe_blocks = "deny"
 [[example]]
 name = "http_ranges"
 required-features = ["http", "parallel"]
+
+[[example]]
+name = "import_gob"
+required-features = ["gob"]

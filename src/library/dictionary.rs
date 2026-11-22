@@ -26,6 +26,13 @@ fn bucket(text: &[u8]) -> usize {
 }
 
 impl Dictionary {
+    #[cfg(feature = "gob")]
+    pub(crate) fn heap_bytes(&self) -> usize {
+        self.text.capacity()
+            + self.offsets.capacity() * std::mem::size_of::<u32>()
+            + self.codes.capacity() * std::mem::size_of::<u16>()
+    }
+
     pub(super) fn read<S: Source>(source: &S, mut p: u64, count: u16) -> Result<Self> {
         let mut offsets = Vec::with_capacity(usize::from(count) + 1);
         let mut packed = Vec::new();

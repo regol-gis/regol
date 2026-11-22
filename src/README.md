@@ -54,6 +54,17 @@ memory. The opening 128 KiB read selects the range size for this handle. Use
 network requests from another thread, call `library.source().cancel_requests()`.
 This closes active QUIC streams and pooled TCP connections for every query sharing that source.
 
+With the `gob` feature, `gob::GobCatalog` maps a Geo-Object Bundle 2.0
+snapshot's tile IDs to byte ranges. Read the first 64 bytes and use
+`GobCatalog::prefix_len` to find the catalog and metadata extent. Open that
+prefix and call `tiles_in_bounds` with a projected viewport to plan the
+initial tile reads. Use `GobStore::import_tile` to load each checked chunk
+and query the resulting `Library`. A feature link can return
+`Error::MissingTile(tip)`, which lets the caller load that dependency and
+retry. The caller supplies bytes from the same archive snapshot. Native
+or browser callers can stream the loaded snapshot to a GOL file with
+`GobStore::write_gol`.
+
 ## Spatial queries and feature sets
 
 This example reads a building by its typed OSM ID and finds cafés that intersect
