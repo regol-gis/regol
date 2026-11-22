@@ -1187,32 +1187,30 @@ impl<'a, S: Source> Features<'a, S> {
                 }
                 Work::Branch { p, node, depth } => self.expand_branch(p, node, depth)?,
                 Work::Leaf { p, node } => {
-                    if EQUALITY {
-                        if let Some(equality) = equality {
-                            self.in_tile(p, if node { 20 } else { 32 })?;
-                            let tile = lib.source.as_bytes().and_then(|bytes| {
-                                let end = usize::try_from(self.tile.end()).ok()?;
-                                bytes.get(self.tile.start() as usize..end)
-                            });
-                            let outcome = match (tile, node) {
-                                (Some(tile), true) => self.equality_whole_leaf::<true, _>(
-                                    p, tile, equality, predicate, step,
-                                )?,
-                                (Some(tile), false) => self.equality_whole_leaf::<false, _>(
-                                    p, tile, equality, predicate, step,
-                                )?,
-                                (None, true) => {
-                                    self.equality_leaf::<true>(p, equality, predicate, step)?
-                                }
-                                (None, false) => {
-                                    self.equality_leaf::<false>(p, equality, predicate, step)?
-                                }
-                            };
-                            if let Some(outcome) = outcome {
-                                return Ok(outcome);
+                    if EQUALITY && let Some(equality) = equality {
+                        self.in_tile(p, if node { 20 } else { 32 })?;
+                        let tile = lib.source.as_bytes().and_then(|bytes| {
+                            let end = usize::try_from(self.tile.end()).ok()?;
+                            bytes.get(self.tile.start() as usize..end)
+                        });
+                        let outcome = match (tile, node) {
+                            (Some(tile), true) => self.equality_whole_leaf::<true, _>(
+                                p, tile, equality, predicate, step,
+                            )?,
+                            (Some(tile), false) => self.equality_whole_leaf::<false, _>(
+                                p, tile, equality, predicate, step,
+                            )?,
+                            (None, true) => {
+                                self.equality_leaf::<true>(p, equality, predicate, step)?
                             }
-                            continue;
+                            (None, false) => {
+                                self.equality_leaf::<false>(p, equality, predicate, step)?
+                            }
+                        };
+                        if let Some(outcome) = outcome {
+                            return Ok(outcome);
                         }
+                        continue;
                     }
                     let mut current = p;
                     loop {

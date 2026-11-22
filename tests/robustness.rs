@@ -47,12 +47,12 @@ fn exercise(data: &[u8]) {
                     }
                 }
             }
-            if f.kind() == FeatureType::Relation {
-                if let Ok(members) = f.members() {
-                    for member in members {
-                        if member.is_err() {
-                            break;
-                        }
+            if f.kind() == FeatureType::Relation
+                && let Ok(members) = f.members()
+            {
+                for member in members {
+                    if member.is_err() {
+                        break;
                     }
                 }
             }

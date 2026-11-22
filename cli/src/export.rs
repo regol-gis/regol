@@ -146,10 +146,10 @@ impl<'a, S: Source> Export<'a, S> {
                 let known = seen.of_kind(id.kind);
                 let existing = known.contains(&id.id);
                 if !existing {
-                    if let (Expansion::Filtered, Some(in_scope)) = (expansion, within_area) {
-                        if !in_scope(feature)? {
-                            return Ok(());
-                        }
+                    if let (Expansion::Filtered, Some(in_scope)) = (expansion, within_area)
+                        && !in_scope(feature)?
+                    {
+                        return Ok(());
                     }
                     known.insert(id.id);
                     match id.kind {

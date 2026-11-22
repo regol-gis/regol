@@ -169,7 +169,7 @@ impl<'a, S: Source> WayCheckpointIndex<'a, S> {
         let mut entries = Vec::with_capacity(entry_count);
         let mut checkpoints = Vec::with_capacity(checkpoint_count);
         let rows_end = HEADER_BYTES + entry_count * ENTRY_BYTES;
-        for row in bytes[HEADER_BYTES..rows_end].chunks_exact(ENTRY_BYTES) {
+        for row in bytes[HEADER_BYTES..rows_end].as_chunks::<ENTRY_BYTES>().0 {
             entries.push(Entry {
                 anchor: u64_at(row, 0),
                 body: u64_at(row, 8),
@@ -180,7 +180,10 @@ impl<'a, S: Source> WayCheckpointIndex<'a, S> {
                 first_checkpoint: u32_at(row, 36),
             });
         }
-        for row in bytes[rows_end..payload_end].chunks_exact(CHECKPOINT_BYTES) {
+        for row in bytes[rows_end..payload_end]
+            .as_chunks::<CHECKPOINT_BYTES>()
+            .0
+        {
             checkpoints.push(Checkpoint {
                 coordinate_offset: u32_at(row, 0),
                 id_offset: u32_at(row, 4),

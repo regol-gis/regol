@@ -308,10 +308,10 @@ fn run<S: Source + Sync>(
                 let within_area = |feature: Feature<'_, S>| {
                     // Relation members come directly from their parent and
                     // bypass the query's bounds filter.
-                    if let Some(bounds) = bounds {
-                        if !bounds.intersects(feature.bounds()?) {
-                            return Ok(false);
-                        }
+                    if let Some(bounds) = bounds
+                        && !bounds.intersects(feature.bounds()?)
+                    {
+                        return Ok(false);
                     }
                     area.map_or(Ok(true), |area| area.intersects_feature(feature))
                 };

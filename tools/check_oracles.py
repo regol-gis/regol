@@ -8,10 +8,12 @@ than treating a broken oracle as proof of reader incompatibility.
 import argparse
 import importlib.metadata
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
 from geodesk import Features
+from fetch_java_oracle import stage_jars
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -21,10 +23,13 @@ args = parser.parse_args()
 version = importlib.metadata.version("geodesk")
 if version != "2.0.4":
     raise SystemExit(f"Expected GeoDesk Python 2.0.4, got {version}")
-subprocess.run(["javac", "-cp", str(args.java_directory / "*"), "-d", str(args.java_directory), str(ROOT / "tools/java_oracle.java")], check=True)
-report = {"python_version": version, "java_artifacts": json.loads((args.java_directory / "manifest.json").read_text()), "results": {}}
 manifest = json.loads((ROOT / "tests/fixtures/manifest.json").read_text())
 with tempfile.TemporaryDirectory(prefix="gol-oracle-") as temporary:
+    staging = pathlib.Path(temporary)
+    artifacts = stage_jars(staging, args.java_directory)
+    classpath = os.pathsep.join([temporary, *(str(staging / jar["name"]) for jar in artifacts)])
+    subprocess.run(["javac", "-cp", classpath, "-d", temporary, str(ROOT / "tools/java_oracle.java")], check=True)
+    report = {"python_version": version, "java_artifacts": artifacts, "results": {}}
     for name in manifest["variants"]:
         path = ROOT / "tests/fixtures" / f"{name}.gol"
         library = Features(str(path))
@@ -41,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix="gol-oracle-") as temporary:
                 result["python_passed"] += 1
             else:
                 result["failures"]["python:" + text] = {"actual": actual, "expected": want}
-            proc = subprocess.run(["java", "-cp", str(args.java_directory / "*") + ":" + str(args.java_directory), "java_oracle", str(padded), text], capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(["java", "-cp", classpath, "java_oracle", str(padded), text], capture_output=True, text=True, timeout=30)
             actual = sorted(proc.stdout.splitlines())
             if proc.returncode == 0 and actual == want:
                 result["java_passed"] += 1

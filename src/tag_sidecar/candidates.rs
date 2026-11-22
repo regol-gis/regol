@@ -162,7 +162,9 @@ impl WordCandidates<'_> {
 
 fn scalar(bytes: &[u8], mask: u32) -> u32 {
     bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .fold(0, |bits, (lane, word)| {
             bits | (u32::from(u32_at(word) & mask != 0) << lane)
@@ -199,7 +201,7 @@ mod avx2 {
             let mask = _mm256_set1_epi32(mask as i32);
             let zero = _mm256_setzero_si256();
             let mut lanes = 0;
-            for (group, words) in bytes.chunks_exact(32).enumerate() {
+            for (group, words) in bytes.as_chunks::<32>().0.iter().enumerate() {
                 let input = _mm256_loadu_si256(words.as_ptr().cast());
                 let empty = _mm256_cmpeq_epi32(_mm256_and_si256(input, mask), zero);
                 let bits = _mm256_movemask_ps(_mm256_castsi256_ps(empty)) as u32;

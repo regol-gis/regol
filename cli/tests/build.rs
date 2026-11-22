@@ -1,25 +1,16 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-fn temp_dir(label: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let id = NEXT.fetch_add(1, Ordering::Relaxed);
-    let dir = env::temp_dir().join(format!(
-        "regol-cli-build-{label}-{}-{id}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
+use std::{fs, path::Path, process::Command};
 
 #[test]
 fn build_subcommand_round_trips_and_supports_layout_options() {
     const BRANCH_FANOUT_OFFSET: usize = 100;
-    let dir = temp_dir("roundtrip");
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let temporary = builder.prefix("regol-cli-build-").tempdir().unwrap();
+    let dir = temporary.path();
     let sample_gol = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ids.gol");
     let pbf_path = dir.join("sample.osm.pbf");
 
@@ -209,6 +200,4 @@ fn build_subcommand_round_trips_and_supports_layout_options() {
             .unwrap()
             .success()
     );
-
-    let _ = fs::remove_dir_all(&dir);
 }

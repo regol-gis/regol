@@ -135,10 +135,10 @@ impl Range {
             ));
         }
         let size = (last - first + 1) as usize;
-        if let Some(length) = headers.get(header::CONTENT_LENGTH) {
-            if length.to_str().ok().and_then(|s| s.parse::<usize>().ok()) != Some(size) {
-                return Err(invalid("Content-Length does not match Content-Range"));
-            }
+        if let Some(length) = headers.get(header::CONTENT_LENGTH)
+            && length.to_str().ok().and_then(|s| s.parse::<usize>().ok()) != Some(size)
+        {
+            return Err(invalid("Content-Length does not match Content-Range"));
         }
         Ok((total, size))
     }

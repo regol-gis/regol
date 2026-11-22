@@ -319,32 +319,27 @@ impl<'a, S: Source> Feature<'a, S> {
         let mut steps = 0u64;
         let max_tags = self.library.limits.max_tags;
 
-        if first != 0x8001 {
-            if let Some(target_code) = dict.key_code(key) {
-                let mut off = table_off;
-                loop {
-                    steps += 1;
-                    if steps > max_tags {
-                        return None;
-                    }
-                    let tail = tile.get(off..)?;
-                    let word = u32::from_le_bytes(*tail.first_chunk::<4>()?);
-                    let found = ((word >> 2) & 8191) as u16;
-                    if found == target_code {
-                        let val = decode_inline_value(
-                            tile,
-                            dict,
-                            off + 2,
-                            word & 3,
-                            (word >> 16) as u16,
-                        )?;
-                        return Some(Some(val));
-                    }
-                    if found > target_code || word & 0x8000 != 0 {
-                        break;
-                    }
-                    off += 4 + usize::from((word as u16) & 2);
+        if first != 0x8001
+            && let Some(target_code) = dict.key_code(key)
+        {
+            let mut off = table_off;
+            loop {
+                steps += 1;
+                if steps > max_tags {
+                    return None;
                 }
+                let tail = tile.get(off..)?;
+                let word = u32::from_le_bytes(*tail.first_chunk::<4>()?);
+                let found = ((word >> 2) & 8191) as u16;
+                if found == target_code {
+                    let val =
+                        decode_inline_value(tile, dict, off + 2, word & 3, (word >> 16) as u16)?;
+                    return Some(Some(val));
+                }
+                if found > target_code || word & 0x8000 != 0 {
+                    break;
+                }
+                off += 4 + usize::from((word as u16) & 2);
             }
         }
 
@@ -1044,10 +1039,10 @@ impl<'a, S: Source> Coordinates<'a, S> {
                 out.push(self.read_fallback()?);
             }
         }
-        if self.close {
-            if let Some(&first) = out.first() {
-                out.push(first);
-            }
+        if self.close
+            && let Some(&first) = out.first()
+        {
+            out.push(first);
         }
         Ok(out)
     }

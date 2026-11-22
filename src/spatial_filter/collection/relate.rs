@@ -38,7 +38,7 @@ impl PreparedTopology {
         let on_line = !lines.is_empty()
             && self
                 .index
-                .locate_in_envelope_intersecting(&AABB::from_point([point.x, point.y]))
+                .locate_in_envelope_intersecting(AABB::from_point([point.x, point.y]))
                 .any(|entry| {
                     lines.contains(&entry.index) && sample.on_edge(self.topology.edges[entry.index])
                 });
@@ -179,7 +179,7 @@ fn collection_matrix_prepared(
                 a_line.start.y.max(a_line.end.y),
             ],
         );
-        for entry in right_index.locate_in_envelope_intersecting(&env) {
+        for entry in right_index.locate_in_envelope_intersecting(env) {
             if let Some(hit) = geo::line_intersection::line_intersection(a_line, entry.line) {
                 let b = entry.index;
                 record_intersection(a_edge, right.edges[b], hit, |ca, cb| {
@@ -236,7 +236,7 @@ fn collection_matrix_prepared(
     let mut visited_right = HashSet::new();
     if let Some(lb) = left_bounds {
         let env = AABB::from_corners([lb.min().x, lb.min().y], [lb.max().x, lb.max().y]);
-        for entry in right_index.locate_in_envelope_intersecting(&env) {
+        for entry in right_index.locate_in_envelope_intersecting(env) {
             let b = entry.index;
             visited_right.insert(b);
             let edge = right.edges[b];
@@ -538,7 +538,7 @@ impl Topology {
         let lines = self.area_edges + offset..self.edges.len() + offset;
         let on_line = !lines.is_empty()
             && index
-                .locate_in_envelope_intersecting(&sample.envelope())
+                .locate_in_envelope_intersecting(sample.envelope())
                 .any(|entry| {
                     lines.contains(&entry.index) && sample.on_edge(self.edges[entry.index - offset])
                 });
@@ -564,7 +564,7 @@ impl PolygonEdges {
         );
         let ring_location = |ring: &Range<usize>| {
             let mut inside = false;
-            for entry in index.locate_in_envelope_intersecting(&ray) {
+            for entry in index.locate_in_envelope_intersecting(ray) {
                 if !ring.contains(&entry.index) {
                     continue;
                 }
@@ -615,7 +615,7 @@ impl PolygonEdges {
             let range = ring.start + offset..ring.end + offset;
             ring_position(
                 index
-                    .locate_in_envelope_intersecting(&ray)
+                    .locate_in_envelope_intersecting(ray)
                     .filter(|entry| range.contains(&entry.index))
                     .map(|entry| edges[entry.index - offset]),
                 sample,

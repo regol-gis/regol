@@ -30,6 +30,12 @@ cargo audit --file Cargo.lock
 cargo audit --no-fetch --file fuzz/Cargo.lock
 ```
 
+Both lockfiles currently resolve `heapless 0.8.0` through `rstar`. The
+library uses `rstar 0.13.1` directly, and `geo` uses `rstar 0.12.2`.
+Both versions require the 0.8 series. RustSec reports nine unsoundness
+warnings for this version. The audit displays them while we await a compatible
+upstream release. [RustSec advisories for heapless](https://rustsec.org/packages/heapless.html)
+
 ## Targeted tests
 
 The `http` feature tests start loopback TCP and UDP servers with a test certificate.

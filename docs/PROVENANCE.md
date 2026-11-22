@@ -19,7 +19,7 @@ classification draws on the public-domain [OSM polygon feature rules](https://gi
 
 The release archives include MIT notices copied from the upstream revisions for
 three crates whose source packages omit the license file. The versioned copies
-are in `tools/licenses`. [geo 0.31.0](https://github.com/georust/geo/blob/daf0515b0317b93480020a8cfb1dc7b46a4526ad/LICENSE-MIT) · [rstar 0.12.2](https://github.com/georust/rstar/blob/c8c5bf9e41468281d030869d409e3f67f1aaf5b7/LICENSE-MIT) · [i_overlay 4.0.7](https://github.com/iShape-Rust/iOverlay/blob/a071220dfc6095edb82426b880a4019db3ea67b5/LICENSE)
+are in `tools/licenses`. [geo 0.31.0](https://github.com/georust/geo/blob/daf0515b0317b93480020a8cfb1dc7b46a4526ad/LICENSE-MIT) · [rstar 0.12.2](https://github.com/georust/rstar/blob/c8c5bf9e41468281d030869d409e3f67f1aaf5b7/LICENSE-MIT) · [rstar 0.13.1](https://github.com/georust/rstar/blob/72ca121d1c0f835e1a3bb975d45fd1b115da1b95/LICENSE-MIT) · [i_overlay 4.0.7](https://github.com/iShape-Rust/iOverlay/blob/a071220dfc6095edb82426b880a4019db3ea67b5/LICENSE)
 
 ## Test data
 

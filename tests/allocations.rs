@@ -110,9 +110,10 @@ fn borrowed_feature_access_allocates_nothing() -> Result<()> {
 
 fn bounded_cache_replacement_reuses_allocations() -> Result<()> {
     use regol::source::{CachedFile, Source};
-    let path = std::env::temp_dir().join(format!("gol-cache-alloc-{}", std::process::id()));
-    std::fs::write(&path, vec![73; 4096 * 32])?;
-    let source = CachedFile::open(&path, 16 * 1024)?;
+    use std::io::Write;
+    let mut file = tempfile::tempfile()?;
+    file.write_all(&vec![73; 4096 * 32])?;
+    let source = CachedFile::from_file(file, 16 * 1024)?;
     let mut output = [0; 17];
     for page in 0..4 {
         source.read_exact_at(page * 4096, &mut output)?;
@@ -135,8 +136,6 @@ fn bounded_cache_replacement_reuses_allocations() -> Result<()> {
     );
     assert_eq!(source.allocated_bytes()?, 16 * 1024);
     assert_eq!(output, [73; 17]);
-    drop(source);
-    std::fs::remove_file(path)?;
     Ok(())
 }
 

@@ -37,14 +37,11 @@ impl Query {
                         | Test::Numeric { .. }
                         | Test::Regex { negate: false, .. }
                 );
-                if requires_presence {
-                    if let Some(code) = code {
-                        if let Some((_, bits)) =
-                            library.categories.iter().find(|(key, _)| *key == code)
-                        {
-                            mask |= bits;
-                        }
-                    }
+                if requires_presence
+                    && let Some(code) = code
+                    && let Some((_, bits)) = library.categories.iter().find(|(key, _)| *key == code)
+                {
+                    mask |= bits;
                 }
                 let local_value = predicate.local_value_test(dictionary);
                 let local_literals = if matches!(local_value, LocalValueTest::MixedEquality) {
@@ -988,10 +985,10 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         initial: T,
         mut fold: impl FnMut(T, Feature<'a, S>) -> Result<T>,
     ) -> Result<T> {
-        if let CompiledPlan::All(types) = &self.plan {
-            if self.library.source.as_bytes().is_some() {
-                return features.try_fold_all(*types, initial, fold, || Ok(true));
-            }
+        if let CompiledPlan::All(types) = &self.plan
+            && self.library.source.as_bytes().is_some()
+        {
+            return features.try_fold_all(*types, initial, fold, || Ok(true));
         }
         let mut value = Some(initial);
         self.scan_unbounded_erased(features, &mut |feature| {
@@ -1012,10 +1009,10 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         initial: T,
         mut fold: impl FnMut(T, Feature<'a, S>) -> Result<T>,
     ) -> Result<T> {
-        if let CompiledPlan::All(types) = &self.plan {
-            if self.library.source.as_bytes().is_some() {
-                return features.try_fold_all(*types, initial, fold, step);
-            }
+        if let CompiledPlan::All(types) = &self.plan
+            && self.library.source.as_bytes().is_some()
+        {
+            return features.try_fold_all(*types, initial, fold, step);
         }
         let mut value = Some(initial);
         self.scan_in(features, step, |feature| {

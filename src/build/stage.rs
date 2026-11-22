@@ -697,7 +697,8 @@ fn mark_shared_xy(nodes: &[RawNode], node_flags: &[AtomicU8], workers: usize) {
                         let word = &counts[s >> 5];
                         let shift = (s & 31) * 2;
                         if ((word.load(Ordering::Relaxed) >> shift) & 3) < 2 {
-                            #[allow(deprecated)] // Keep fetch_update for Rust 1.85 MSRV.
+                            #[allow(deprecated)]
+                            // Keep fetch_update for the minimum supported Rust version.
                             let _ = word.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
                                 let c = (v >> shift) & 3;
                                 (c < 2).then_some((v & !(3u64 << shift)) | ((c + 1) << shift))
@@ -1827,7 +1828,7 @@ impl DiskNodeStore {
                 raw.resize(byte_len, 0);
                 read_file_exact_at(&raw_file, c.offset, &mut raw)?;
                 for i in 0..c.count {
-                    if written % NODES_PER_PAGE == 0 {
+                    if written.is_multiple_of(NODES_PER_PAGE) {
                         let id = i64::from_le_bytes(
                             raw[i * RawNode::SIZE..i * RawNode::SIZE + 8]
                                 .try_into()
@@ -1873,7 +1874,7 @@ impl DiskNodeStore {
                 let byte_len = c.count * RawNode::SIZE;
                 raw.resize(byte_len, 0);
                 read_file_exact_at(&raw_file, c.offset, &mut raw)?;
-                for rec in raw.chunks_exact(RawNode::SIZE) {
+                for rec in raw.as_chunks::<{ RawNode::SIZE }>().0 {
                     sort_buf.push(RawNode::decode(rec));
                     if sort_buf.len() >= run_cap {
                         flush_run(&mut sort_buf, &mut run_names, &mut run_files)?;
@@ -1910,7 +1911,7 @@ impl DiskNodeStore {
                     ensure!(node.id != prev, "duplicate OSM node ID {}", node.id);
                 }
                 prev_id = Some(node.id);
-                if written % NODES_PER_PAGE == 0 {
+                if written.is_multiple_of(NODES_PER_PAGE) {
                     page_first_ids.push(node.id);
                 }
                 written += 1;
@@ -2005,7 +2006,7 @@ fn mark_shared_xy_disk(
 
     // Pass 1: streaming 2-bit saturating counting filter.
     nodes.for_each_page(|_, page| {
-        for raw in page.chunks_exact(RawNode::SIZE) {
+        for raw in page.as_chunks::<{ RawNode::SIZE }>().0 {
             let x = i32::from_le_bytes(raw[8..12].try_into().unwrap());
             let y = i32::from_le_bytes(raw[12..16].try_into().unwrap());
             let s = (hash_xy(x, y) as usize) & mask;
@@ -2050,7 +2051,7 @@ fn mark_shared_xy_disk(
         const BUCKETS: usize = 256;
         let mut buckets: Vec<Vec<(i32, i32, u32)>> = (0..BUCKETS).map(|_| Vec::new()).collect();
         nodes.for_each_page(|base_idx, page| {
-            for (off, raw) in page.chunks_exact(RawNode::SIZE).enumerate() {
+            for (off, raw) in page.as_chunks::<{ RawNode::SIZE }>().0.iter().enumerate() {
                 let x = i32::from_le_bytes(raw[8..12].try_into().unwrap());
                 let y = i32::from_le_bytes(raw[12..16].try_into().unwrap());
                 let h = hash_xy(x, y);
@@ -2095,7 +2096,7 @@ fn mark_shared_xy_disk(
     let mut enc = [0u8; 12];
     nodes.for_each_page(|base_idx, page| {
         use std::io::Write;
-        for (off, raw) in page.chunks_exact(RawNode::SIZE).enumerate() {
+        for (off, raw) in page.as_chunks::<{ RawNode::SIZE }>().0.iter().enumerate() {
             let x = i32::from_le_bytes(raw[8..12].try_into().unwrap());
             let y = i32::from_le_bytes(raw[12..16].try_into().unwrap());
             let h = hash_xy(x, y);
@@ -2130,7 +2131,7 @@ fn mark_shared_xy_disk(
             drop(rdr);
             bucket.clear();
             bucket.reserve(count);
-            for rec in buf.chunks_exact(12) {
+            for rec in buf.as_chunks::<12>().0 {
                 bucket.push((
                     i32::from_le_bytes(rec[0..4].try_into().unwrap()),
                     i32::from_le_bytes(rec[4..8].try_into().unwrap()),
@@ -2237,7 +2238,7 @@ fn resolve_spilled(
                     raw_buf.resize(byte_len, 0);
                     read_file_exact_at(f, chunk.offset, &mut raw_buf)?;
                     if let Some(remap) = remap {
-                        for pair_bytes in raw_buf.chunks_exact_mut(8) {
+                        for pair_bytes in raw_buf.as_chunks_mut::<8>().0 {
                             let (k, v) = <(u32, u32)>::decode(pair_bytes);
                             (remap[k as usize], remap[v as usize]).encode(pair_bytes);
                         }
@@ -2383,14 +2384,19 @@ fn resolve_spilled(
                 wbuf.resize(chunk.ways_count * RawWay::SIZE, 0);
                 read_file_exact_at(wf, chunk.ways_offset, &mut wbuf)?;
                 let ways: Vec<RawWay> = wbuf
-                    .chunks_exact(RawWay::SIZE)
-                    .map(RawWay::decode)
+                    .as_chunks::<{ RawWay::SIZE }>()
+                    .0
+                    .iter()
+                    .map(|row| RawWay::decode(row))
                     .collect();
                 rbuf.resize(chunk.refs_count * 8, 0);
                 read_file_exact_at(rf, chunk.refs_offset, &mut rbuf)?;
                 let refs: Vec<i64> = rbuf
-                    .chunks_exact(8)
-                    .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(i64::from_le_bytes)
                     .collect();
                 loaded.push((tbase, ways, refs));
             }
@@ -2573,7 +2579,7 @@ fn resolve_spilled(
         let mut enc_buf = Vec::with_capacity(65_536);
         node_store.for_each_page(|base_nidx, page| {
             enc_buf.clear();
-            for (off, raw_node) in page.chunks_exact(RawNode::SIZE).enumerate() {
+            for (off, raw_node) in page.as_chunks::<{ RawNode::SIZE }>().0.iter().enumerate() {
                 let nidx = base_nidx + off;
                 let v = node_flags[nidx].load(Ordering::Relaxed);
                 let is_feature = (v & NODE_IS_FEATURE) != 0;
@@ -2656,7 +2662,7 @@ fn resolve_spilled(
         let mut emitted_ways = 0usize;
         let mut emit_way = |w: SpilledResolvedWay| -> Result<()> {
             let obj_id = w.id * 4 + 1;
-            if emitted_ways % WAYS_PER_SPARSE_BLOCK == 0 {
+            if emitted_ways.is_multiple_of(WAYS_PER_SPARSE_BLOCK) {
                 way_block_first_ids.push(obj_id);
             }
             emitted_ways += 1;

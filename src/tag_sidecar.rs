@@ -235,7 +235,7 @@ pub unsafe fn build(
             if matches!(kind, Kind::Words) {
                 words.push(mask);
                 if node {
-                    if count % 32 == 0 {
+                    if count.is_multiple_of(32) {
                         wide.push(0u32);
                     }
                     if flags & 4 != 0 {
@@ -368,8 +368,11 @@ impl Sidecar {
             return Err(invalid("invalid tag sidecar pair count"));
         }
         if bytes[16..STAMP_END]
-            .chunks_exact(8)
-            .map(u64_at)
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .copied()
+            .map(u64::from_le_bytes)
             .ne(identity)
             || &bytes[GOL_HEADER_START..HEADER] != gol_header
         {
@@ -397,7 +400,7 @@ impl Sidecar {
             return Err(invalid("invalid tag sidecar directory"));
         }
         let mut direct = Vec::new();
-        for row in bytes[table..].chunks_exact(16) {
+        for row in bytes[table..].as_chunks::<16>().0 {
             let length = u64_at(&row[8..]);
             if length == direct::DENSE {
                 direct.push(None);
