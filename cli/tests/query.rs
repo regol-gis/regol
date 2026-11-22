@@ -22,6 +22,11 @@ fn fixture_query(fixture: &str, arguments: &[&str]) -> Output {
 
 #[test]
 fn invalid_query_arguments_fail_without_stdout() {
+    let output = query(&["*", "-f", "csv", "--typed-tags"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--typed-tags requires GeoJSON"));
+
     let output = query(&["*", "--bbox", "1,1,0,0"]);
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -275,7 +280,7 @@ fn geojson_cuts_a_ribbon_covering_more_than_one_world_copy() {
 }
 
 #[test]
-fn geojson_exports_typed_tags_and_optional_bounds() {
+fn geojson_exports_selected_osm_tags_and_optional_bounds() {
     let output = successful_query(&[
         "n[amenity=cafe]",
         "-f",
@@ -297,15 +302,45 @@ fn geojson_exports_typed_tags_and_optional_bounds() {
                 "bbox": [0.001, 0.001, 0.001, 0.001],
                 "properties": {
                     "name": "Café 東京",
-                    "capacity": 12,
-                    "height": 3.25,
-                    "negative": -256,
+                    "capacity": "12",
+                    "height": "3.25",
+                    "negative": "-256",
                     "odd:key": "0012",
                     "empty": "",
                 }
             }]
         })
     );
+}
+
+#[test]
+fn geojson_tag_types_match_osm_by_default_and_geodesk_on_request() {
+    // N1 in basic.osm.json and GOL Tool 2.0.0's basic.oracle.geojson.
+    // Only the GOL-encoded numbers differ between these two contracts.
+    let osm = json!({
+        "amenity": "cafe", "capacity": "12", "empty": "", "height": "3.25",
+        "large": "70000", "name": "Café 東京", "negative": "-256", "odd:key": "0012"
+    });
+    let mut stored = osm.clone();
+    stored["capacity"] = json!(12);
+    stored["height"] = json!(3.25);
+    stored["large"] = json!(70000);
+    stored["negative"] = json!(-256);
+    for format in ["geojson", "geojsonl"] {
+        for (flags, expected) in [(&[][..], &osm), (&["--typed-tags"][..], &stored)] {
+            let mut args = vec!["n[amenity=cafe]", "-f", format];
+            args.extend_from_slice(flags);
+            let output: Value = serde_json::from_str(&successful_query(&args)).unwrap();
+            let feature = if format == "geojson" {
+                &output["features"][0]
+            } else {
+                &output
+            };
+            assert_eq!(feature["id"], "N1");
+            assert_eq!(&feature["properties"], expected);
+            assert!(feature["geometry"]["coordinates"][0].is_number());
+        }
+    }
 }
 
 #[test]
