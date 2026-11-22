@@ -3,7 +3,7 @@
 `regol-cli` installs the `regol` command for building, inspecting, and querying
 GeoDesk GOL 2.0 files on disk or over HTTP(S). It compiles OpenStreetMap PBF snapshots into GOL
 files, verifies integrity, prints feature counts or IDs, and exports matching
-features to XML, PBF, GeoJSON, GeoJSONL, WKT, or CSV. It requires Rust 1.88 or
+features to XML, PBF, GeoJSON, GeoJSONL, WKT, or CSV. It requires Rust 1.90 or
 later to build.
 
 For a crates.io release, run `cargo install --locked regol-cli`. From the

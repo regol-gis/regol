@@ -266,8 +266,8 @@ impl<'a> Sections<'a> {
         if keys > 8190 || indexed_keys.len() != 4 + keys as usize * 4 {
             return Err(invalid(0, "invalid key schema size"));
         }
-        for word in indexed_keys[4..].chunks_exact(4) {
-            let word = u32::from_le_bytes(word.try_into().expect("four-byte word"));
+        for &word in indexed_keys[4..].as_chunks::<4>().0 {
+            let word = u32::from_le_bytes(word);
             let key = word as u16;
             if key == 0 || key >= strings_count || key > 8190 || !(1..=30).contains(&(word >> 16)) {
                 return Err(invalid(0, "invalid indexed key or category"));
@@ -365,7 +365,10 @@ fn tile_bounds(tile: u32) -> Option<Bounds> {
 
 impl<'a> Directory<'a> {
     fn read(words: &'a [u8], zooms: Vec<u8>) -> Result<Self> {
-        if words.len() < 8 || words.len() % 4 != 0 || words.u32(0)? as usize != words.len() - 4 {
+        if words.len() < 8
+            || !words.len().is_multiple_of(4)
+            || words.u32(0)? as usize != words.len() - 4
+        {
             return Err(invalid(0, "invalid tile directory length"));
         }
         let len = words.len() / 4;
