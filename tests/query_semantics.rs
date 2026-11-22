@@ -1,5 +1,70 @@
-use regol::{Library, Query, Result};
-use std::collections::BTreeMap;
+use regol::{Bounds, Library, Predicate, Query, Result, Selector, Types};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[test]
+fn key_presence_accepts_all_value_encodings() -> Result<()> {
+    let lib = Library::new(include_bytes!("fixtures/query_semantics.gol").as_slice())?;
+    let original: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/query_semantics.osm.json")).unwrap();
+    // The source includes numeric zero, "no", empty text and local strings.
+    for key in ["value", "name", "absent"] {
+        let expected = original["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|node| node["tags"].get(key).is_some())
+            .map(|node| format!("N{}", node["id"]))
+            .collect::<BTreeSet<_>>();
+        let query = Query::new(Selector::new(Types::NODE).and(Predicate::present(key)));
+        let prepared = query.prepare(&lib)?;
+        for features in [
+            Box::new(lib.select(&query)) as Box<dyn Iterator<Item = _>>,
+            Box::new(prepared.in_bounds(Bounds::WORLD)),
+        ] {
+            let ids = features
+                .map(|item| item.map(|f| f.id().to_string()))
+                .collect::<Result<BTreeSet<_>>>()?;
+            assert_eq!(ids, expected, "{key}");
+        }
+        assert_eq!(prepared.count()?, expected.len() as u64);
+    }
+    Ok(())
+}
+
+#[test]
+fn branch_width_pruning_keeps_every_eligible_feature_at_the_threshold() -> Result<()> {
+    let lib = Library::new(include_bytes!("fixtures/stress.gol").as_slice())?;
+    let query = Query::all();
+    let prepared = query.prepare(&lib)?;
+    let width_and_id = |f: regol::Feature<'_, &[u8]>| -> Result<_> {
+        let bounds = f.bounds()?;
+        Ok((bounds.min.x.abs_diff(bounds.max.x), f.id()))
+    };
+    let all = prepared
+        .in_bounds(Bounds::WORLD)
+        .map(|f| width_and_id(f?))
+        .collect::<Result<Vec<_>>>()?;
+    let edge = all.iter().find(|(width, _)| *width > 0).unwrap().0;
+    for minimum in [0, edge, edge.saturating_add(1), u32::MAX] {
+        let candidates = prepared
+            .candidates_in_bounds_with_min_width(Bounds::WORLD, minimum)
+            .map(|f| width_and_id(f?))
+            .collect::<Result<Vec<_>>>()?;
+        if minimum == u32::MAX {
+            assert!(candidates.len() < all.len());
+        }
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|(w, _)| *w >= minimum)
+                .collect::<Vec<_>>(),
+            all.iter()
+                .filter(|(w, _)| *w >= minimum)
+                .collect::<Vec<_>>()
+        );
+    }
+    Ok(())
+}
 
 #[test]
 fn numeric_text_quoting_regex_and_negation_matrix() -> Result<()> {
