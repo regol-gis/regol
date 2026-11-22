@@ -1051,8 +1051,20 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
     pub(crate) fn scan_in(
         &self,
         features: &mut Features<'a, S>,
-        step: impl FnMut() -> Result<bool>,
+        mut step: impl FnMut() -> Result<bool>,
         mut emit: impl FnMut(Feature<'a, S>) -> Result<bool>,
+    ) -> Option<Result<Feature<'a, S>>> {
+        self.scan_in_erased(features, &mut step, &mut emit)
+    }
+
+    // Type-erase `step` and `emit` at this boundary so callers do not
+    // multiply all ten CompiledPlan arms and Features::advance per closure.
+    #[inline(never)]
+    fn scan_in_erased(
+        &self,
+        features: &mut Features<'a, S>,
+        step: &mut dyn FnMut() -> Result<bool>,
+        emit: &mut dyn FnMut(Feature<'a, S>) -> Result<bool>,
     ) -> Option<Result<Feature<'a, S>>> {
         match &self.plan {
             CompiledPlan::All(types) => features.next_with_budget::<true>(

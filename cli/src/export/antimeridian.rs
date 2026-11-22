@@ -19,6 +19,7 @@ pub(super) enum CutGeometry<'a> {
 }
 
 impl<'a> CutGeometry<'a> {
+    #[inline(never)]
     pub(super) fn new(geometry: &'a Geometry) -> Result<Self, &'static str> {
         Ok(match geometry {
             Geometry::LineString(points) if crosses(points) => Self::Lines(cut_line(points)),

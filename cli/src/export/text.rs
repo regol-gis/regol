@@ -208,12 +208,12 @@ pub(crate) fn write_parallel<'a, S: Source + Sync + 'a>(
                 features,
                 output,
                 threads,
-                |output, feature, _, buf, scratch| {
+                &|output, feature, _, buf, scratch| {
                     write_wkt_feature_into(buf, feature, &writer, scratch)?;
                     flush_buf(output, buf)?;
                     Ok(())
                 },
-                |buf, feature, _, scratch| write_wkt_feature_into(buf, feature, &writer, scratch),
+                &|buf, feature, _, scratch| write_wkt_feature_into(buf, feature, &writer, scratch),
             )
         }
         Format::Csv => {
@@ -223,12 +223,12 @@ pub(crate) fn write_parallel<'a, S: Source + Sync + 'a>(
                 features,
                 output,
                 threads,
-                |output, feature, _, buf, scratch| {
+                &|output, feature, _, buf, scratch| {
                     writer.row_into(buf, feature, scratch)?;
                     flush_buf(output, buf)?;
                     Ok(())
                 },
-                |buf, feature, _, scratch| writer.row_into(buf, feature, scratch),
+                &|buf, feature, _, scratch| writer.row_into(buf, feature, scratch),
             )
         }
     }
@@ -248,6 +248,35 @@ impl Default for WorkerBuf {
     }
 }
 
+enum PartitionEncoder<'a> {
+    Ids,
+    GeoJson(geojson::Encoder<'a>),
+    Wkt(GeometryWriter),
+    Csv(CsvWriter<'a>),
+}
+
+impl PartitionEncoder<'_> {
+    #[inline(never)]
+    fn encode<S: Source>(
+        &self,
+        buf: &mut Vec<u8>,
+        feature: Feature<'_, S>,
+        first: bool,
+        scratch: &mut Scratch,
+    ) -> EncodeResult<()> {
+        match self {
+            Self::Ids => {
+                push_feature_id(buf, &mut scratch.integer, feature.id());
+                buf.push(b'\n');
+                Ok(())
+            }
+            Self::GeoJson(encoder) => encoder.feature_into(buf, feature, first, scratch),
+            Self::Wkt(writer) => write_wkt_feature_into(buf, feature, writer, scratch),
+            Self::Csv(writer) => writer.row_into(buf, feature, scratch),
+        }
+    }
+}
+
 fn run_partitioned<S: Source + Sync, W: Write + Send>(
     prepared: &regol::PreparedQuery<'_, '_, S>,
     bounds: Option<Bounds>,
@@ -255,7 +284,7 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
     sink: &Mutex<(&mut W, bool)>,
     threads: usize,
     collection: bool,
-    encode_one: &(impl Fn(&mut Vec<u8>, Feature<'_, S>, bool, &mut Scratch) -> EncodeResult<()> + Sync),
+    encoder: &PartitionEncoder<'_>,
 ) -> EncodeResult<()> {
     let first_err: Mutex<Option<Box<dyn std::error::Error + Send + Sync>>> = Mutex::new(None);
     let flush_chunk = |buf: &mut Vec<u8>| -> regol::Result<()> {
@@ -296,7 +325,8 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
                 }
             }
             let first_in_buf = acc.buf.is_empty();
-            if let Err(err) = encode_one(&mut acc.buf, feature, first_in_buf, &mut acc.scratch) {
+            if let Err(err) = encoder.encode(&mut acc.buf, feature, first_in_buf, &mut acc.scratch)
+            {
                 let mut e = first_err.lock().unwrap();
                 if e.is_none() {
                     *e = Some(err);
@@ -348,11 +378,7 @@ pub(crate) fn write_ids_partitioned<S: Source + Sync, W: Write + Send>(
         &sink,
         threads,
         false,
-        &|buf, feature, _, scratch| {
-            push_feature_id(buf, &mut scratch.integer, feature.id());
-            buf.push(b'\n');
-            Ok(())
-        },
+        &PartitionEncoder::Ids,
     )
 }
 
@@ -370,42 +396,23 @@ pub(crate) fn write_partitioned<S: Source + Sync, W: Write + Send>(
     match format {
         Format::GeoJson | Format::GeoJsonLines => {
             let encoder = geojson::Encoder::new(format, options, precision);
+            let collection = encoder.collection;
             encoder.begin(sink.lock().unwrap().0)?;
-            run_partitioned(
-                prepared,
-                bounds,
-                area,
-                &sink,
-                threads,
-                encoder.collection,
-                &|buf, feature, first, scratch| encoder.feature_into(buf, feature, first, scratch),
-            )?;
-            encoder.end(sink.lock().unwrap().0)?;
+            let wrapped = PartitionEncoder::GeoJson(encoder);
+            run_partitioned(prepared, bounds, area, &sink, threads, collection, &wrapped)?;
+            if let PartitionEncoder::GeoJson(encoder) = wrapped {
+                encoder.end(sink.lock().unwrap().0)?;
+            }
         }
         Format::Wkt => {
-            let writer = GeometryWriter::new(Encoding::Wkt, precision);
-            run_partitioned(
-                prepared,
-                bounds,
-                area,
-                &sink,
-                threads,
-                false,
-                &|buf, feature, _, scratch| write_wkt_feature_into(buf, feature, &writer, scratch),
-            )?;
+            let wrapped = PartitionEncoder::Wkt(GeometryWriter::new(Encoding::Wkt, precision));
+            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
         }
         Format::Csv => {
             let writer = CsvWriter::new(options, precision);
             writer.header(sink.lock().unwrap().0)?;
-            run_partitioned(
-                prepared,
-                bounds,
-                area,
-                &sink,
-                threads,
-                false,
-                &|buf, feature, _, scratch| writer.row_into(buf, feature, scratch),
-            )?;
+            let wrapped = PartitionEncoder::Csv(writer);
+            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
         }
     }
     Ok(())
@@ -873,6 +880,7 @@ impl GeometryWriter {
         }
     }
 
+    #[inline(never)]
     pub(super) fn push_cut_geometry(
         &self,
         out: &mut Vec<u8>,

@@ -43,12 +43,17 @@ struct SharedState {
     completed_workers: usize,
 }
 
+pub(super) type StreamFn<'a, 'f, S, W> =
+    dyn Fn(&mut W, Feature<'a, S>, bool, &mut Vec<u8>, &mut Scratch) -> EncodeResult<()> + 'f;
+pub(super) type EncodeFn<'a, 'f, S> =
+    dyn Fn(&mut Vec<u8>, Feature<'a, S>, bool, &mut Scratch) -> EncodeResult<()> + Sync + 'f;
+
 pub(super) fn write<'a, S: Source + Sync + 'a, W: Write>(
     features: impl IntoIterator<Item = regol::Result<Feature<'a, S>>>,
     output: &mut W,
     threads: usize,
-    stream: impl Fn(&mut W, Feature<'a, S>, bool, &mut Vec<u8>, &mut Scratch) -> EncodeResult<()>,
-    encode: impl Fn(&mut Vec<u8>, Feature<'a, S>, bool, &mut Scratch) -> EncodeResult<()> + Sync,
+    stream: &StreamFn<'a, '_, S, W>,
+    encode: &EncodeFn<'a, '_, S>,
 ) -> EncodeResult<()> {
     let mut features = features.into_iter();
     let mut first = true;
@@ -248,7 +253,7 @@ fn encode_chunk<T: Copy>(
     buffer: &mut Vec<u8>,
     first: bool,
     limit: usize,
-    encode: &impl Fn(&mut Vec<u8>, T, bool, &mut Scratch) -> EncodeResult<()>,
+    encode: &(impl Fn(&mut Vec<u8>, T, bool, &mut Scratch) -> EncodeResult<()> + ?Sized),
     scratch: &mut Scratch,
 ) -> EncodeResult<usize> {
     for (index, &item) in items.iter().enumerate() {

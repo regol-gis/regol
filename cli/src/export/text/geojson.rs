@@ -57,12 +57,12 @@ pub(crate) fn write_parallel<'a, S: Source + Sync + 'a>(
         features,
         output,
         threads,
-        |output, feature, first, buf, scratch| {
+        &|output, feature, first, buf, scratch| {
             encoder.feature_into(buf, feature, first, scratch)?;
             flush_buf(output, buf)?;
             Ok(())
         },
-        |buf, feature, first, scratch| encoder.feature_into(buf, feature, first, scratch),
+        &|buf, feature, first, scratch| encoder.feature_into(buf, feature, first, scratch),
     )?;
     encoder.end(output)
 }

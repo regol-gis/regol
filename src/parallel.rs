@@ -383,6 +383,7 @@ impl QueryExecutor {
         let run_worker = |worker_id: usize, initial: T| {
             let mut acc = initial;
             let mut lease = budget.lease();
+            let mut step = || lease.step();
             let mut cursor = match &source {
                 WorkSource::Wide { template, .. } => Some(template.worker_cursor()),
                 WorkSource::Split(_) => None,
@@ -403,7 +404,7 @@ impl QueryExecutor {
                                 .unwrap()
                                 .take()
                                 .expect("unique partition index");
-                            query.fold_in(&mut part, || lease.step(), acc, &fold)?
+                            query.fold_in(&mut part, &mut step, acc, &fold)?
                         }
                         WorkSource::Wide {
                             template,
@@ -413,10 +414,10 @@ impl QueryExecutor {
                             if let Some(tile_idx) = idx.checked_sub(*first_tile) {
                                 let c = cursor.as_mut().expect("wide worker cursor");
                                 c.defer_tile(tiles[tile_idx]);
-                                query.fold_in(c, || lease.step(), acc, &fold)?
+                                query.fold_in(c, &mut step, acc, &fold)?
                             } else {
                                 let mut rem = template.fork_remaining();
-                                query.fold_in(&mut rem, || lease.step(), acc, &fold)?
+                                query.fold_in(&mut rem, &mut step, acc, &fold)?
                             }
                         }
                     };
