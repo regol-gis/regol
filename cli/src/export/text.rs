@@ -51,6 +51,14 @@ pub(crate) struct Options {
     keys: Option<Vec<String>>,
     columns: Option<Vec<String>>,
     precision: Option<usize>,
+    pub(crate) tag_types: TagTypes,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum TagTypes {
+    #[default]
+    OsmStrings,
+    Stored,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,6 +132,11 @@ impl Options {
     }
 
     pub(crate) fn validate(&self, format: Option<Format>) -> ExportResult<()> {
+        if self.tag_types == TagTypes::Stored
+            && !matches!(format, Some(Format::GeoJson | Format::GeoJsonLines))
+        {
+            return Err("--typed-tags requires GeoJSON or GeoJSONL output".into());
+        }
         if self.keys.is_some()
             && !matches!(
                 format,
@@ -554,6 +567,7 @@ pub(super) fn push_properties(
     feature: Feature<'_, impl Source>,
     out: &mut Vec<u8>,
     keys: Option<&[&str]>,
+    tag_types: TagTypes,
     integer: &mut itoa::Buffer,
 ) -> EncodeResult<()> {
     let mut first = true;
@@ -566,8 +580,13 @@ pub(super) fn push_properties(
         out.push(b':');
         match value {
             TagValue::Text(value) => push_json_str(out, value.as_ref()),
-            TagValue::Number { mantissa, scale } => {
+            TagValue::Number { mantissa, scale } if tag_types == TagTypes::Stored => {
                 push_tag_number(out, mantissa, scale, integer);
+            }
+            TagValue::Number { mantissa, scale } => {
+                out.push(b'"');
+                push_tag_number(out, mantissa, scale, integer);
+                out.push(b'"');
             }
         }
     };
@@ -716,7 +735,13 @@ impl<'a> CsvWriter<'a> {
                 Field::Tags => {
                     scratch.tag_buf.clear();
                     scratch.tag_buf.push(b'{');
-                    push_properties(feature, &mut scratch.tag_buf, None, &mut scratch.integer)?;
+                    push_properties(
+                        feature,
+                        &mut scratch.tag_buf,
+                        None,
+                        TagTypes::Stored,
+                        &mut scratch.integer,
+                    )?;
                     scratch.tag_buf.push(b'}');
                     out.push(b'"');
                     push_csv_quoted_contents(out, &scratch.tag_buf);

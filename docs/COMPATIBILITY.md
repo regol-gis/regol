@@ -185,6 +185,11 @@ iteration does not allocate per field.
 
 ## Deliberate differences and oracle limitations
 
+- GeoJSON and GeoJSONL export OSM tag values as strings by default. For
+  example, the original OSM tag `height=3.25` exports as `"height":"3.25"`.
+  GOL Tool emits `"height":3.25` when the GOL stores a number. Regol's
+  `--typed-tags` mode follows that convention. The CLI conformance test checks
+  both property types on the same fixture, including the text value `"0012"`.
 - Empty-string equality and escaped exact-string equality follow the original
   tag values. The pinned CLI/Python matcher disagrees on two retained test cases.
 - Touching-ring geometry preserves both original exteriors. Python 2.0.4 drops

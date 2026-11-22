@@ -56,8 +56,11 @@ preparation of the next.
 
 `geojson` writes a FeatureCollection, and `geojsonl` writes one Feature per
 line. Each includes the same type-qualified ID as `ids`, such as `N123`.
-Properties preserve stored tag types, including decimal numbers and text with
-leading zeroes. Use `--keys name,height` to select properties and
+OSM tag values are JSON strings. For example, `maxheight=4.1` exports as
+`"maxheight":"4.1"` whether the GOL stores the value as text or as a number.
+Decimal scale and leading zeroes in text are preserved. Pass `--typed-tags`
+for GeoDesk-style properties, with JSON numbers for numerically stored tags.
+Use `--keys name,height` to select properties and
 `--keys ''` for an empty properties object. Include `bbox` for a top-level
 feature bounding box and `*` for all tags. Use `tag:bbox` to select the OSM
 tag named `bbox`.

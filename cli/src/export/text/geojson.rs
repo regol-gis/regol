@@ -1,7 +1,7 @@
 use super::{
     CutGeometry, DEFAULT_PRECISION, EncodeResult, Encoding, Feature, Format, GeometryWriter,
-    Options, Scratch, Source, feature_geometry, flush_buf, push_feature_id, push_properties,
-    tag_key,
+    Options, Scratch, Source, TagTypes, feature_geometry, flush_buf, push_feature_id,
+    push_properties, tag_key,
 };
 use regol::FeatureType;
 use std::io::{self, Write};
@@ -71,6 +71,7 @@ pub(super) struct Encoder<'a> {
     pub(super) collection: bool,
     include_bounds: bool,
     property_keys: Option<Vec<&'a str>>,
+    tag_types: TagTypes,
     writer: GeometryWriter,
 }
 
@@ -97,6 +98,7 @@ impl<'a> Encoder<'a> {
             collection: matches!(format, Format::GeoJson),
             include_bounds,
             property_keys,
+            tag_types: options.tag_types,
             writer: GeometryWriter::new(Encoding::Json, precision),
         }
     }
@@ -262,7 +264,13 @@ impl<'a> Encoder<'a> {
             out.push(b']');
         }
         out.extend_from_slice(b",\"properties\":{");
-        push_properties(feature, out, self.property_keys.as_deref(), integer)?;
+        push_properties(
+            feature,
+            out,
+            self.property_keys.as_deref(),
+            self.tag_types,
+            integer,
+        )?;
         out.extend_from_slice(if self.collection { b"}}" } else { b"}}\n" });
         Ok(())
     }

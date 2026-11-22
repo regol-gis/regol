@@ -102,7 +102,8 @@ regol query region.gol 'w[highway]' --no-mmap --eager-dictionary --threads 1
 ```
 
 Supported output formats (`-f`): `count` (default), `ids`, `geojson`,
-`geojsonl`, `wkt`, `csv`, `xml`, and `pbf`. See the
+`geojsonl`, `wkt`, `csv`, `xml`, and `pbf`. GeoJSON and GeoJSONL export OSM tag
+values as strings by default. Use `--typed-tags` for GeoDesk-style numbers. See the
 [command-line guide](cli/README.md) for CSV columns, precision rounding,
 antimeridian splitting, and `--complete-relations`.
 

@@ -21,7 +21,7 @@ const USAGE: &str = "Usage:
   regol build [OPTIONS] INPUT OUTPUT
   regol query FILE_OR_URL GOQL [--area GEOJSON] [--bbox WEST,SOUTH,EAST,NORTH]
               [-f count|ids|xml|pbf|geojson|geojsonl|wkt|csv]
-              [--keys KEYS] [--columns COLUMNS] [--precision DIGITS]
+              [--keys KEYS] [--columns COLUMNS] [--precision DIGITS] [--typed-tags]
               [--complete-relations TYPES] [--threads N] [--unordered|--ordered]
               [--no-mmap] [--eager-dictionary] [--http-page-kib N]
   regol info FILE_OR_URL
@@ -33,6 +33,8 @@ Query writes to stdout. The default format is count. The bounding box selects
 features by their stored bounds. A GeoJSON area selects features by geometry
 intersection.
 --keys selects comma-separated GeoJSON properties or CSV columns.
+GeoJSON and GeoJSONL write OSM tag values as strings. Use --typed-tags to
+emit JSON numbers for tags stored numerically in the GOL.
 --columns also selects CSV columns (default id,type,geometry).
 --precision sets the number of coordinate decimal places (0–15, default 7).
 Use -R or --complete-relations to specify which relation types to complete in
@@ -154,6 +156,9 @@ impl Options {
                         .to_str()
                         .ok_or("relation types must be UTF-8")?
                         .parse()?;
+                }
+                "--typed-tags" if inline.is_none() => {
+                    options.text.tag_types = export::text::TagTypes::Stored;
                 }
                 "--keys" | "-k" => {
                     let value = value()?;
