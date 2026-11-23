@@ -13,7 +13,7 @@ use std::{
     ffi::OsString,
     io::{self, BufWriter, Write},
     path::PathBuf,
-    process::ExitCode,
+    process::{Command, ExitCode},
     thread,
 };
 
@@ -26,12 +26,14 @@ const USAGE: &str = "Usage:
               [--no-mmap] [--eager-dictionary] [--http-page-kib N]
   regol overpass FILE_OR_URL --file QUERY.ql [--bbox WEST,SOUTH,EAST,NORTH]
                  [-f count|ids|geojson] [--area-index DIRECTORY]
+  regol live FILE [OPTIONS]
   regol info FILE_OR_URL
   regol check FILE_OR_URL
 
 Build compiles an OpenStreetMap .osm.pbf file into a GOL 2.0 file; run
 `regol build --help` for layout and tuning options.
 Overpass evaluates Overpass QL queries. Run `regol overpass --help` for options.
+Live serves a local GOL in the browser. Install it with `cargo install --locked regol-live`.
 Query writes to stdout. The default format is count. The bounding box selects
 features by their stored bounds. A GeoJSON area selects features by geometry
 intersection.
@@ -357,6 +359,26 @@ impl<T, L: Iterator<Item = T>, R: Iterator<Item = T>> Iterator for Candidates<L,
     }
 }
 
+fn live(args: impl Iterator<Item = OsString>) -> io::Result<()> {
+    let mut command = Command::new("regol-live");
+    command.args(args);
+    #[cfg(unix)]
+    let error = std::os::unix::process::CommandExt::exec(&mut command);
+    #[cfg(not(unix))]
+    let error = match command.status() {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(error) => error,
+    };
+    Err(if error.kind() == io::ErrorKind::NotFound {
+        io::Error::new(
+            error.kind(),
+            "regol-live was not found on PATH. Install it with `cargo install --locked regol-live`.",
+        )
+    } else {
+        io::Error::new(error.kind(), format!("could not start regol-live: {error}"))
+    })
+}
+
 fn execute() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1).peekable();
     if args.len() == 1
@@ -369,6 +391,10 @@ fn execute() -> Result<(), Box<dyn Error>> {
     }
     if args.peek().is_some_and(|arg| arg == "build") {
         return build::execute(args);
+    }
+    if args.peek().is_some_and(|arg| arg == "live") {
+        args.next();
+        return Ok(live(args)?);
     }
     if args.peek().is_some_and(|arg| arg == "overpass") {
         args.next();

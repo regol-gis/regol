@@ -9,6 +9,10 @@ later to build.
 For a crates.io release, run `cargo install --locked regol-cli`. From the
 repository root, run `cargo install --locked --path cli`.
 
+To open a local GOL in an interactive browser map, install the separate server
+with `cargo install --locked regol-live`, then run `regol live region.gol`.
+Pass `--help` after `live` for the server options.
+
 ```sh
 regol build region.osm.pbf region.gol
 regol query region.gol 'na[amenity=cafe]'
