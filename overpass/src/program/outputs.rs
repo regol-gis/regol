@@ -1,6 +1,7 @@
-use regol::{Feature, FeatureType, source::Source};
+use super::candidates::Candidates;
+use regol::{Feature, FeatureId, FeatureType, Geometry, source::Source};
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet, ops::ControlFlow};
 
 /// Geometry or count requested by an Overpass `out` statement.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -61,6 +62,122 @@ pub struct ExecutedGroup<'a, S: Source> {
 pub enum GroupData<'a, S: Source> {
     Features(Vec<Feature<'a, S>>),
     Count(Counts),
+}
+
+/// Metadata available when consuming a group or one of its features.
+#[derive(Clone, Copy)]
+pub struct OutputGroup<'a> {
+    pub index: usize,
+    pub name: &'a str,
+    pub mode: OutputMode,
+    pub detail: Option<OutputDetail>,
+    pub order: Option<OutputOrder>,
+    /// Whether this group comes from an explicit ordered output statement.
+    pub ordered: bool,
+}
+
+/// What the executor should do after the consumer sees a matched feature.
+pub enum FeatureStatus {
+    Accepted,
+    SkippedGeometry,
+    Stop,
+}
+
+/// Distinct feature IDs whose geometry could not be used during execution.
+#[derive(Default)]
+pub struct ExecutionStats {
+    pub skipped_geometries: usize,
+    pub skipped_references: usize,
+}
+
+/// Optional preprocessing for a matched feature. The weight bounds the bytes
+/// retained by the executor while it waits to commit a batch in scan order.
+pub trait FeaturePreparation<'a, S: Source>: Sync {
+    type Prepared: Send;
+
+    fn prepare(
+        &self,
+        feature: Feature<'a, S>,
+        geometry: Option<Geometry>,
+    ) -> (Self::Prepared, usize);
+}
+
+impl<S: Source> FeaturePreparation<'_, S> for () {
+    type Prepared = ();
+
+    fn prepare(&self, _: Feature<'_, S>, _: Option<Geometry>) -> ((), usize) {
+        ((), 0)
+    }
+}
+
+/// Consume query output in traversal order and optionally stop before reading
+/// more results. Parallel preparation is optional and the final callbacks run
+/// in the same order as the serial executor.
+pub trait OutputSink<'a, S: Source> {
+    type Prepared: Send;
+    type Preparation: FeaturePreparation<'a, S, Prepared = Self::Prepared>;
+
+    fn preparation(&self, _group: OutputGroup<'_>) -> Option<Self::Preparation> {
+        None
+    }
+
+    /// Introduce a group. Count groups already contain their complete totals.
+    fn group(
+        &mut self,
+        group: OutputGroup<'_>,
+        counts: Option<Counts>,
+    ) -> Result<ControlFlow<()>, String>;
+
+    /// Consume a feature. Geometry already read by a spatial filter is passed
+    /// here in serial execution and to `prepare` in parallel execution.
+    fn feature(
+        &mut self,
+        group: OutputGroup<'_>,
+        feature: Feature<'a, S>,
+        geometry: Option<Geometry>,
+        prepared: Option<Self::Prepared>,
+    ) -> Result<FeatureStatus, String>;
+
+    /// Observe usable geometry from a set used as a relationship operand.
+    fn reference(&mut self, _geometry: &Geometry) {}
+}
+
+pub(crate) struct GroupCollector<'a, S: Source>(pub Vec<ExecutedGroup<'a, S>>);
+
+impl<'a, S: Source> OutputSink<'a, S> for GroupCollector<'a, S> {
+    type Prepared = ();
+    type Preparation = ();
+
+    fn group(
+        &mut self,
+        group: OutputGroup<'_>,
+        counts: Option<Counts>,
+    ) -> Result<ControlFlow<()>, String> {
+        self.0.push(ExecutedGroup {
+            name: group.name.into(),
+            mode: group.mode,
+            detail: group.detail,
+            order: group.order,
+            data: counts
+                .map(GroupData::Count)
+                .unwrap_or_else(|| GroupData::Features(Vec::new())),
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn feature(
+        &mut self,
+        group: OutputGroup<'_>,
+        feature: Feature<'a, S>,
+        _: Option<Geometry>,
+        _: Option<()>,
+    ) -> Result<FeatureStatus, String> {
+        let GroupData::Features(features) = &mut self.0[group.index].data else {
+            unreachable!()
+        };
+        features.push(feature);
+        Ok(FeatureStatus::Accepted)
+    }
 }
 
 #[derive(Deserialize)]
@@ -137,14 +254,57 @@ impl OutputStatement {
         }
     }
 
-    pub(super) fn group<'a, S: Source>(&self, data: GroupData<'a, S>) -> ExecutedGroup<'a, S> {
-        ExecutedGroup {
-            name: self.name.clone(),
+    pub(super) fn emit<'a, S: Source, C: Fn() -> Result<(), String>>(
+        &self,
+        index: usize,
+        features: &[Feature<'a, S>],
+        mapped: bool,
+        sink: &mut impl OutputSink<'a, S>,
+        check: &C,
+        executor: &impl Candidates<S, C>,
+    ) -> Result<(bool, HashSet<FeatureId>), String> {
+        check()?;
+        let mut skipped = HashSet::new();
+        let group = OutputGroup {
+            index,
+            name: &self.name,
             mode: self.mode,
             detail: self.detail,
             order: self.order,
-            data,
+            ordered: true,
+        };
+        let counts = self.counts(features, mapped, check)?;
+        if sink.group(group, counts)?.is_break() {
+            return Ok((true, skipped));
         }
+        if self.mode == OutputMode::Count {
+            return Ok((false, skipped));
+        }
+        let ordered = self.ordered_features(features, check)?;
+        let preparation = sink.preparation(group);
+        let mut stopped = false;
+        executor.visit(
+            ordered.iter().copied().map(Ok),
+            &[],
+            preparation.as_ref(),
+            check,
+            |candidate, prepared| {
+                check()?;
+                let feature = candidate.map_err(|error| error.to_string())?;
+                match sink.feature(group, feature, None, prepared.and_then(|work| work.output))? {
+                    FeatureStatus::Accepted => {}
+                    FeatureStatus::SkippedGeometry => {
+                        skipped.insert(feature.id());
+                    }
+                    FeatureStatus::Stop => {
+                        stopped = true;
+                        return Ok(ControlFlow::Break(()));
+                    }
+                }
+                Ok(ControlFlow::Continue(()))
+            },
+        )?;
+        Ok((stopped, skipped))
     }
 }
 
@@ -162,133 +322,4 @@ fn quadtile<S: Source>(f: Feature<'_, S>) -> regol::Result<u64> {
     }
     let b = f.bounds()?;
     Ok(spread(center(b.min.x, b.max.x)) | spread(center(b.min.y, b.max.y)) << 1)
-}
-
-// The evaluator commits the same ordered results through either output adapter.
-use super::{
-    Plan,
-    candidates::Candidates,
-    live::{Display, LiveOutput, Rendered},
-};
-use crate::geometry::GeoGeometry;
-use regol::{FeatureId, Geometry};
-use std::collections::HashSet;
-
-pub(crate) enum Sink<'a, S: Source> {
-    Live(LiveOutput),
-    Groups(Vec<ExecutedGroup<'a, S>>),
-}
-
-impl<'a, S: Source> Sink<'a, S> {
-    pub(crate) fn groups(plan: &Plan) -> Self {
-        let groups = if plan.output == OutputMode::Count {
-            plan.show
-                .first()
-                .map(|name| ExecutedGroup {
-                    name: plan.output_name.as_ref().unwrap_or(name).clone(),
-                    mode: plan.output,
-                    detail: None,
-                    order: None,
-                    data: GroupData::Count(Counts::default()),
-                })
-                .into_iter()
-                .collect()
-        } else {
-            plan.show
-                .iter()
-                .map(|name| ExecutedGroup {
-                    name: plan.output_name.as_ref().unwrap_or(name).clone(),
-                    mode: plan.output,
-                    detail: None,
-                    order: None,
-                    data: GroupData::Features(Vec::new()),
-                })
-                .collect()
-        };
-        Self::Groups(groups)
-    }
-
-    pub(super) fn display(&self, mode: OutputMode, group: usize) -> Option<Display> {
-        match self {
-            Self::Live(_) => Display::new(mode, group, true, false),
-            Self::Groups(_) => None,
-        }
-    }
-
-    pub(super) fn limited(&self) -> bool {
-        matches!(self, Self::Live(live) if live.output.limited.is_some())
-    }
-
-    pub(super) fn references(&mut self) -> Option<&mut Vec<GeoGeometry>> {
-        match self {
-            Self::Live(live) => live.output.references.as_mut(),
-            Self::Groups(_) => None,
-        }
-    }
-
-    pub(super) fn append(
-        &mut self,
-        group: usize,
-        feature: Feature<'a, S>,
-        geometry: Option<Geometry>,
-        prepared: Option<regol::Result<Rendered>>,
-        display: Option<Display>,
-        skipped: &mut HashSet<FeatureId>,
-    ) -> Result<bool, String> {
-        match self {
-            Self::Live(live) => live.append(feature, geometry, prepared, display.unwrap(), skipped),
-            Self::Groups(groups) => {
-                let GroupData::Features(features) = &mut groups[group].data else {
-                    unreachable!()
-                };
-                features.push(feature);
-                Ok(true)
-            }
-        }
-    }
-
-    pub(super) fn emit<C: Fn() -> Result<(), String>>(
-        &mut self,
-        statement: &OutputStatement,
-        features: &[Feature<'a, S>],
-        mapped: bool,
-        skipped: &mut HashSet<FeatureId>,
-        check: &C,
-        executor: &impl Candidates<S, C>,
-    ) -> Result<(), String> {
-        check()?;
-        let counts = statement.counts(features, mapped, check)?;
-        match self {
-            Self::Live(live) => {
-                if let Some(display) = live.start_group(statement, counts)? {
-                    let ordered = statement.ordered_features(features, check)?;
-                    live.append_group(&ordered, display, skipped, check, executor)?;
-                }
-            }
-            Self::Groups(groups) => {
-                let data = if let Some(counts) = counts {
-                    GroupData::Count(counts)
-                } else {
-                    GroupData::Features(statement.ordered_features(features, check)?.into_owned())
-                };
-                groups.push(statement.group(data));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn finish(&mut self, counts: Option<Counts>, skipped: usize, skipped_refs: usize) {
-        match self {
-            Self::Live(live) => {
-                live.output.counts = counts;
-                live.output.skipped_geometries = skipped;
-                live.output.skipped_references = skipped_refs;
-            }
-            Self::Groups(groups) => {
-                if let Some(counts) = counts {
-                    groups[0].data = GroupData::Count(counts);
-                }
-            }
-        }
-    }
 }

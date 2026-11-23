@@ -79,7 +79,7 @@ impl Filter {
 fn reference_vertices(vertices: &mut usize, count: usize) -> Result<(), String> {
     *vertices += count;
     if *vertices > MAX_VERTICES {
-        return Err("Reference vertex limit reached. Narrow the set or zoom in.".into());
+        return Err("Reference vertex limit reached. Narrow the set or its bounds.".into());
     }
     Ok(())
 }

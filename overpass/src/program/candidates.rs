@@ -1,7 +1,5 @@
 //! Evaluate independent candidates on native workers, then commit them in scan order.
-#[cfg(not(target_arch = "wasm32"))]
-use super::live::MAX_DISPLAY_VERTICES;
-use super::live::{Display, Rendered};
+use super::outputs::FeaturePreparation;
 use crate::{relationship::Matcher, with_geometry_reads};
 use regol::{Feature, Geometry, source::Source};
 use std::ops::ControlFlow;
@@ -22,21 +20,21 @@ pub(super) fn matches<S: Source>(
     })
 }
 
-pub(crate) struct Prepared {
+pub(crate) struct Prepared<P> {
     pub(super) matched: regol::Result<bool>,
-    pub(super) display: Option<regol::Result<Rendered>>,
+    pub(super) output: Option<P>,
 }
 
 pub(crate) trait Candidates<S: Source, C> {
-    fn visit<'a>(
+    fn visit<'a, P: FeaturePreparation<'a, S>>(
         &self,
         iter: impl Iterator<Item = regol::Result<Feature<'a, S>>>,
         _: &[Matcher],
-        _: Option<Display>,
+        _: Option<&P>,
         _: &C,
         mut visit: impl FnMut(
             regol::Result<Feature<'a, S>>,
-            Option<Prepared>,
+            Option<Prepared<P::Prepared>>,
         ) -> Result<ControlFlow<()>, String>,
     ) -> Result<(), String>
     where
@@ -59,15 +57,15 @@ pub(crate) struct Parallel;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<S: Source + Sync, C: Fn() -> Result<(), String> + Sync> Candidates<S, C> for Parallel {
-    fn visit<'a>(
+    fn visit<'a, P: FeaturePreparation<'a, S>>(
         &self,
         mut iter: impl Iterator<Item = regol::Result<Feature<'a, S>>>,
         filters: &[Matcher],
-        display: Option<Display>,
+        preparation: Option<&P>,
         check: &C,
         mut visit: impl FnMut(
             regol::Result<Feature<'a, S>>,
-            Option<Prepared>,
+            Option<Prepared<P::Prepared>>,
         ) -> Result<ControlFlow<()>, String>,
     ) -> Result<(), String>
     where
@@ -75,12 +73,13 @@ impl<S: Source + Sync, C: Fn() -> Result<(), String> + Sync> Candidates<S, C> fo
     {
         use rayon::prelude::*;
         const CHUNK: usize = 16;
+        const SPECULATIVE_BYTES: usize = 8 * 1024 * 1024;
         let threads = rayon::current_num_threads();
-        if (filters.is_empty() && display.is_none()) || threads == 1 {
-            return Serial.visit(iter, filters, display, check, visit);
+        if (filters.is_empty() && preparation.is_none()) || threads == 1 {
+            return Serial.visit(iter, filters, preparation, check, visit);
         }
         let batch_size = 1024.max(threads * CHUNK);
-        let chunk_bytes = 8 * 1024 * 1024 / (batch_size / CHUNK);
+        let chunk_bytes = SPECULATIVE_BYTES / (batch_size / CHUNK);
         let mut batch = Vec::with_capacity(batch_size);
         loop {
             check()?;
@@ -93,28 +92,28 @@ impl<S: Source + Sync, C: Fn() -> Result<(), String> + Sync> Candidates<S, C> fo
                 batch
                     .par_chunks_mut(CHUNK)
                     .try_for_each(|chunk| -> Result<(), String> {
-                        let mut bytes = 0;
+                        let mut bytes = 0usize;
                         for (item, prepared) in chunk {
                             check()?;
-                            let Ok(f) = item else { continue };
-                            let mut g = None;
-                            let matched = matches(*f, filters, &mut g, check);
-                            let display = display
-                                .filter(|_| matches!(matched, Ok(true)))
-                                .map(|display| display.render(*f, g, MAX_DISPLAY_VERTICES));
-                            if let Some(Ok(Rendered::Feature { json: Ok(json), .. })) = &display {
-                                bytes += json.get().len();
+                            let Ok(feature) = item else { continue };
+                            let mut geometry = None;
+                            let matched = matches(*feature, filters, &mut geometry, check);
+                            let mut output = None;
+                            if let Some(preparation) = preparation
+                                && matches!(matched, Ok(true))
+                            {
+                                let (value, cost) = preparation.prepare(*feature, geometry);
+                                bytes = bytes.saturating_add(cost);
+                                if bytes > chunk_bytes {
+                                    *prepared = Some(Prepared {
+                                        matched,
+                                        output: None,
+                                    });
+                                    break;
+                                }
+                                output = Some(value);
                             }
-                            // Bound speculative output across the batch to 8 MiB.
-                            // Commit oversized features individually on the query thread.
-                            if bytes > chunk_bytes {
-                                *prepared = Some(Prepared {
-                                    matched,
-                                    display: None,
-                                });
-                                break;
-                            }
-                            *prepared = Some(Prepared { matched, display });
+                            *prepared = Some(Prepared { matched, output });
                         }
                         Ok(())
                     })?;

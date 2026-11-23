@@ -97,7 +97,7 @@ impl GeoGeometry {
             ),
         })
     }
-    pub(crate) fn from_regol(g: &Geometry) -> Self {
+    pub fn from_regol(g: &Geometry) -> Self {
         match g {
             Geometry::Point(p) => Self::Point {
                 coordinates: coordinates(p),
@@ -117,7 +117,7 @@ impl GeoGeometry {
         }
     }
 }
-pub(crate) fn vertices(g: &Geometry) -> usize {
+pub fn vertices(g: &Geometry) -> usize {
     let polygon = |p: &Polygon| p.exterior.len() + p.interiors.iter().map(Vec::len).sum::<usize>();
     match g {
         Geometry::Point(_) => 1,

@@ -1,6 +1,5 @@
 pub(crate) mod candidates;
 mod control;
-pub(crate) mod live;
 mod membership;
 pub(crate) mod outputs;
 mod recurse;
@@ -16,7 +15,9 @@ use crate::{
 };
 use candidates::{Candidates, matches};
 use membership::Membership;
-use outputs::{OutputMode, OutputStatement, Sink};
+use outputs::{
+    ExecutionStats, FeatureStatus, OutputGroup, OutputMode, OutputSink, OutputStatement,
+};
 use regol::{Bounds, Feature, FeatureId, Library, Query, SpatialFilter, source::Source};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -61,21 +62,6 @@ pub(crate) struct Set {
     pub filters: Vec<Filter>,
 }
 impl Set {
-    pub fn new(name: &str, source: String) -> Self {
-        Self {
-            name: name.into(),
-            source,
-            filters: Vec::new(),
-            overpass: None,
-            union: Vec::new(),
-            difference: None,
-            intersect: Vec::new(),
-            membership: None,
-            recurse: None,
-            control: None,
-            map_to_area: false,
-        }
-    }
     fn set_inputs(&self) -> impl Iterator<Item = &str> {
         self.source
             .strip_prefix('$')
@@ -263,15 +249,26 @@ impl Plan {
         }
         Ok(queries)
     }
+    fn show_group(&self, index: usize) -> OutputGroup<'_> {
+        OutputGroup {
+            index,
+            name: self.output_name.as_deref().unwrap_or(&self.show[index]),
+            mode: self.output,
+            detail: None,
+            order: None,
+            ordered: false,
+        }
+    }
+
     pub fn execute<'a, S: Source, C: Fn() -> Result<(), String>>(
         &self,
         lib: &'a Library<S>,
         windows: &[Bounds],
-        sink: &mut Sink<'a, S>,
+        sink: &mut impl OutputSink<'a, S>,
         check: &C,
         executor: &impl Candidates<S, C>,
         progress: &impl Fn(QueryProgress),
-    ) -> Result<(), String> {
+    ) -> Result<ExecutionStats, String> {
         let mut mapped_areas = HashSet::new();
         let queries = self.parse_selectors(&mut mapped_areas)?;
         let mut needed: HashSet<&str> = self.show.iter().map(String::as_str).collect();
@@ -297,37 +294,43 @@ impl Plan {
             Some(
                 self.geometry
                     .as_ref()
-                    .ok_or("Draw, paste or pick a feature for $geometry.")?
+                    .ok_or("Supply a spatial reference for $geometry.")?
                     .project()?,
             )
         } else {
             None
         };
         let mut counts = (self.output == OutputMode::Count).then(Counts::default);
+        if counts.is_none() {
+            for index in 0..self.show.len() {
+                check()?;
+                if sink.group(self.show_group(index), None)?.is_break() {
+                    return Ok(ExecutionStats::default());
+                }
+            }
+        }
         let mut stored: HashMap<&str, Vec<Feature<'a, S>>> = HashMap::new();
         let mut shown = HashSet::new();
         let mut counted = HashSet::new();
         let mut skipped = HashSet::new();
         let mut skipped_refs = HashSet::new();
-        let mut pending = self.outputs.iter().peekable();
+        let mut pending = self.outputs.iter().enumerate().peekable();
         let mut sets = self.sets.iter().zip(&queries);
-        for i in 0..=self.sets.len() {
+        'program: for i in 0..=self.sets.len() {
             check()?;
-            while let Some(output) = pending.next_if(|output| output.after == i) {
-                sink.emit(
-                    output,
+            while let Some((index, output)) = pending.next_if(|(_, output)| output.after == i) {
+                let (stopped, invalid_geometry) = output.emit(
+                    index,
                     &stored[output.source.as_str()],
                     mapped_areas.contains(output.source.as_str()),
-                    &mut skipped,
+                    sink,
                     check,
                     executor,
                 )?;
-                if sink.limited() {
-                    break;
+                skipped.extend(invalid_geometry);
+                if stopped {
+                    break 'program;
                 }
-            }
-            if sink.limited() {
-                break;
             }
             let Some((set, query)) = sets.next() else {
                 break;
@@ -342,8 +345,14 @@ impl Plan {
             };
             progress(scan);
             let keep = last_use.contains_key(set.name.as_str());
-            let group = self.show.iter().position(|n| n == &set.name);
-            let display = group.and_then(|group| sink.display(self.output, group));
+            let group = self
+                .show
+                .iter()
+                .position(|n| n == &set.name)
+                .map(|index| self.show_group(index));
+            let preparation = group
+                .filter(|group| group.mode != OutputMode::Count)
+                .and_then(|group| sink.preparation(group));
             let mapped = mapped_areas.contains(set.name.as_str());
             if mapped
                 && group.is_some()
@@ -429,7 +438,7 @@ impl Plan {
                         p,
                         &stored[filter.reference.as_str()],
                         &mut bad_refs,
-                        sink.references(),
+                        |geometry| sink.reference(geometry),
                         &mut filter_vertices,
                         check,
                     )
@@ -440,6 +449,7 @@ impl Plan {
             skipped_refs.extend(bad_refs.iter().copied());
             skipped.extend(&bad_refs);
             let mut members = Vec::new();
+            let mut stopped = false;
             if !filters.iter().any(|f| matches!(f, Matcher::Never)) {
                 let prepared = query
                     .as_ref()
@@ -562,7 +572,7 @@ impl Plan {
                         progress(scan);
                     }
                 });
-                executor.visit(candidates, &filters, display, check, |candidate, prepared| {
+                executor.visit(candidates, &filters, preparation.as_ref(), check, |candidate, prepared| {
                     check()?;
                     let f = candidate.map_err(|e| format!("${}: {e}", set.name))?;
                     let id = f.id();
@@ -581,8 +591,8 @@ impl Plan {
                         return Ok(ControlFlow::Continue(()));
                     }
                     let mut g = None;
-                    let (matched, prepared_display) = match prepared {
-                        Some(work) => (work.matched, work.display),
+                    let (matched, prepared_output) = match prepared {
+                        Some(work) => (work.matched, work.output),
                         None => (matches(f, &filters, &mut g, check), None),
                     };
                     if usable_geometry(id, matched, &mut bad)? != Some(true) {
@@ -590,7 +600,7 @@ impl Plan {
                     }
                     if keep && members.len() == MAX_INTERMEDIATE_FEATURES {
                         return Err(format!(
-                            "${}: intermediate feature limit reached. Narrow the set or zoom in.",
+                            "${}: intermediate feature limit reached. Narrow the set or use a smaller bounding box.",
                             set.name
                         ));
                     }
@@ -605,19 +615,20 @@ impl Plan {
                             }
                             counts.add(id.kind, mapped_relation);
                         } else {
-                            let bad_display = if self.output == OutputMode::Center {
-                                &mut skipped
-                            } else {
-                                &mut bad
-                            };
-                            if sink.append(group, f, g, prepared_display, display, bad_display)? {
-                                shown.insert(id);
-                            }
-                            if sink.limited() {
-                                return Ok(ControlFlow::Break(()));
-                            }
-                            if bad.contains(&id) {
-                                return Ok(ControlFlow::Continue(()));
+                            match sink.feature(group, f, g, prepared_output)? {
+                                FeatureStatus::Accepted => { shown.insert(id); }
+                                FeatureStatus::SkippedGeometry => {
+                                    if self.output == OutputMode::Center {
+                                        skipped.insert(id);
+                                    } else {
+                                        bad.insert(id);
+                                        return Ok(ControlFlow::Continue(()));
+                                    }
+                                }
+                                FeatureStatus::Stop => {
+                                    stopped = true;
+                                    return Ok(ControlFlow::Break(()));
+                                }
                             }
                         }
                     }
@@ -638,16 +649,21 @@ impl Plan {
             if keep {
                 let handles = members.len() + stored.values().map(Vec::len).sum::<usize>();
                 if handles > MAX_INTERMEDIATE_BYTES / size_of::<Feature<'_, S>>() {
-                    return Err("Intermediate sets exceed the query memory budget. Narrow the selectors or zoom in.".into());
+                    return Err("Intermediate sets exceed the query memory budget. Narrow the selectors or use a smaller bounding box.".into());
                 }
                 stored.insert(&set.name, members);
             }
-            if sink.limited() {
+            if stopped {
                 break;
             }
         }
-        sink.finish(counts, skipped.len(), skipped_refs.len());
-        Ok(())
+        if counts.is_some() {
+            let _ = sink.group(self.show_group(0), counts)?;
+        }
+        Ok(ExecutionStats {
+            skipped_geometries: skipped.len(),
+            skipped_references: skipped_refs.len(),
+        })
     }
 }
 

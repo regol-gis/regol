@@ -66,7 +66,7 @@ impl Matcher {
         predicate: SpatialPredicate,
         members: &[Feature<'_, S>],
         skipped: &mut HashSet<FeatureId>,
-        mut overlay: Option<&mut Vec<geometry::GeoGeometry>>,
+        mut observe: impl FnMut(&Geometry),
         vertices: &mut usize,
         check: &impl Fn() -> Result<(), String>,
     ) -> Result<Self, String> {
@@ -90,7 +90,10 @@ impl Matcher {
             };
             *vertices += geometry::vertices(&g);
             if *vertices > MAX_VERTICES {
-                return Err("Reference vertex limit reached. Narrow the set or zoom in.".into());
+                return Err(
+                    "Reference vertex limit reached. Narrow the set or use a smaller bounding box."
+                        .into(),
+                );
             }
             if !matches!(predicate, SpatialPredicate::WithinDistance(_)) {
                 let Some(filter) =
@@ -103,9 +106,7 @@ impl Matcher {
                     filters.push(GeomWithData::new(Rectangle::from_corners(min, max), filter));
                 }
             }
-            if let Some(out) = overlay.as_mut() {
-                out.push(geometry::GeoGeometry::from_regol(&g));
-            }
+            observe(&g);
             if matches!(predicate, SpatialPredicate::WithinDistance(_)) {
                 distance.push(g);
             }

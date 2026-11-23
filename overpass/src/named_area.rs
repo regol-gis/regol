@@ -51,11 +51,9 @@ impl crate::Request {
 
     /// Access named-area lookups so a local data source can supply its snapshot index.
     pub fn named_areas_mut(&mut self) -> impl Iterator<Item = &mut Lookup> {
-        let sets = match &mut self.body {
-            crate::Body::Program(plan) => plan.sets.as_mut_slice(),
-            crate::Body::Legacy { .. } => &mut [],
-        };
-        sets.iter_mut()
+        self.plan
+            .sets
+            .iter_mut()
             .filter_map(|set| set.overpass.as_mut()?.named_area.as_mut())
     }
 }

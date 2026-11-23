@@ -1,5 +1,5 @@
 use super::*;
-use crate::execute;
+use crate::{GroupData, execute_groups};
 use regol::Library;
 use serde_json::{Value, json};
 
@@ -23,11 +23,13 @@ fn count(sets: Vec<Value>, show: &str) -> usize {
     let plan = json!({
         "windows": [WINDOW], "sets": sets, "show": [show], "output": "count",
     });
-    execute(&lib, serde_json::from_value(plan).unwrap())
-        .unwrap()
-        .counts
-        .unwrap()
-        .total
+    let mut groups =
+        execute_groups(&lib, serde_json::from_value(plan).unwrap(), &|| Ok(())).unwrap();
+    assert_eq!(groups.len(), 1);
+    let GroupData::Count(counts) = groups.remove(0).data else {
+        panic!("expected count output");
+    };
+    counts.total
 }
 
 fn reference() -> Value {

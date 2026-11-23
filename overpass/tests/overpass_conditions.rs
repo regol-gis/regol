@@ -1,5 +1,5 @@
 use regol::Library;
-use regol_overpass::execute;
+use regol_overpass::{GroupData, execute_groups};
 use serde_json::{Value, json};
 
 #[test]
@@ -27,8 +27,17 @@ fn feature_conditions_filter_bounded_scans_and_stored_sets() {
         "outputs": [{"after": 2, "source": "selected", "name": "selected", "mode": "geom"},
                     {"after": 3, "source": "empty", "name": "empty", "mode": "count"}]
     });
-    let output = execute(&gol, serde_json::from_value(plan).unwrap()).unwrap();
-    let output = serde_json::to_value(output).unwrap();
-    assert_eq!(output["features"][0]["id"], "N9");
-    assert_eq!(output["outputs"][1]["counts"]["total"], 0);
+    let groups = execute_groups(&gol, serde_json::from_value(plan).unwrap(), &|| Ok(())).unwrap();
+    let [selected, empty] = groups.as_slice() else {
+        panic!("expected two output groups");
+    };
+    let GroupData::Features(features) = &selected.data else {
+        panic!("expected selected features");
+    };
+    let GroupData::Count(counts) = &empty.data else {
+        panic!("expected count");
+    };
+    assert_eq!(features.len(), 1);
+    assert_eq!(features[0].id().to_string(), "N9");
+    assert_eq!(counts.total, 0);
 }

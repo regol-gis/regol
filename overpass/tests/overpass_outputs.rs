@@ -1,27 +1,32 @@
-use regol::Library;
-use regol_overpass::{execute, execute_parallel};
-use serde_json::{Value, json};
+use regol::{Library, source::Source};
+use regol_overpass::{
+    Counts, ExecutedGroup, GroupData, OutputDetail, OutputMode, OutputOrder, execute_groups,
+};
+use serde_json::json;
 
 const GOL: &[u8] = include_bytes!("fixtures/geography.gol");
 
-fn result(plan: Value) -> Value {
-    let lib = Library::new(GOL).unwrap();
-    let request = || serde_json::from_value(plan.clone()).unwrap();
-    let serial = serde_json::to_value(execute(&lib, request()).unwrap()).unwrap();
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let parallel =
-        serde_json::to_value(execute_parallel(&lib, request(), &|| Ok(()), &pool).unwrap())
-            .unwrap();
-    assert_eq!(serial, parallel);
-    serial
+fn ids<S: Source>(group: &ExecutedGroup<'_, S>) -> Vec<String> {
+    let GroupData::Features(features) = &group.data else {
+        panic!("expected features");
+    };
+    features
+        .iter()
+        .map(|feature| feature.id().to_string())
+        .collect()
+}
+
+fn counts<'g, S: Source>(group: &'g ExecutedGroup<'_, S>) -> &'g Counts {
+    let GroupData::Count(counts) = &group.data else {
+        panic!("expected counts");
+    };
+    counts
 }
 
 #[test]
 fn mixed_outputs_keep_the_set_at_each_statement_and_allow_repeated_features() {
-    let value = result(json!({
+    let library = Library::new(GOL).unwrap();
+    let plan = json!({
         "windows": [[-1,-1,1,1]],
         "sets": [
             {"name": "first", "source": "*", "overpass": {
@@ -38,36 +43,47 @@ fn mixed_outputs_keep_the_set_at_each_statement_and_allow_repeated_features() {
             {"after": 2, "source": "second", "name": "a", "mode": "count"},
             {"after": 2, "source": "first", "name": "a", "mode": "geom"},
         ],
-    }));
-    assert_eq!(value["limited"], Value::Null);
+    });
+    let groups =
+        execute_groups(&library, serde_json::from_value(plan).unwrap(), &|| Ok(())).unwrap();
+    let [body, center, ways, nodes, geom] = groups.as_slice() else {
+        panic!("expected five output groups");
+    };
+    assert!(groups.iter().all(|group| group.name == "a"));
     assert_eq!(
-        value["outputs"],
-        json!([
-            {"name": "a", "mode": "geom", "detail": "body"},
-            {"name": "a", "mode": "center", "detail": "skel"},
-            {"name": "a", "mode": "count",
-             "counts": {"nodes": 0, "ways": 1, "relations": 0, "total": 1}},
-            {"name": "a", "mode": "count",
-             "counts": {"nodes": 1, "ways": 0, "relations": 0, "total": 1}},
-            {"name": "a", "mode": "geom"},
-        ])
+        (body.mode, body.detail),
+        (OutputMode::Geom, Some(OutputDetail::Body))
     );
-    let features = value["features"].as_array().unwrap();
-    assert_eq!(features.len(), 3);
-    for (feature, group) in features.iter().zip([0, 1, 4]) {
-        assert_eq!(feature["id"], "W104");
-        assert_eq!(feature["properties"]["fid"], format!("{group}:W104"));
-        assert_eq!(feature["properties"]["group"], group);
+    assert_eq!(
+        (center.mode, center.detail),
+        (OutputMode::Center, Some(OutputDetail::Skel))
+    );
+    assert_eq!((geom.mode, geom.detail), (OutputMode::Geom, None));
+    for group in [body, center, geom] {
+        assert_eq!(ids(group), ["W104"]);
     }
-    assert_eq!(features[0]["geometry"]["type"], "LineString");
-    assert_eq!(features[0]["tags"], json!({"test:group": "dateline"}));
-    assert_eq!(features[1]["geometry"]["type"], "Point");
-    assert_eq!(features[1]["tags"], json!({}));
+    assert_eq!(
+        *counts(ways),
+        Counts {
+            ways: 1,
+            total: 1,
+            ..Counts::default()
+        }
+    );
+    assert_eq!(
+        *counts(nodes),
+        Counts {
+            nodes: 1,
+            total: 1,
+            ..Counts::default()
+        }
+    );
 }
 
 #[test]
 fn ascending_and_quadtile_outputs_apply_different_orders() {
-    let value = result(json!({
+    let library = Library::new(GOL).unwrap();
+    let plan = json!({
         "windows": [[-180,-1,180,1]],
         "sets": [
             {"name": "nodes", "source": "n[\"test:group\"=dateline]"},
@@ -76,17 +92,20 @@ fn ascending_and_quadtile_outputs_apply_different_orders() {
             {"after": 1, "source": "nodes", "name": "_", "mode": "geom", "order": "asc"},
             {"after": 1, "source": "nodes", "name": "_", "mode": "geom", "order": "qt"},
         ],
-    }));
-    let features = value["features"].as_array().unwrap();
-    let ids = |start, end| {
-        features[start..end]
-            .iter()
-            .map(|f| f["id"].as_str().unwrap())
-            .collect::<Vec<_>>()
+    });
+    let groups =
+        execute_groups(&library, serde_json::from_value(plan).unwrap(), &|| Ok(())).unwrap();
+    let [ascending, quadtile] = groups.as_slice() else {
+        panic!("expected two output groups");
     };
-    assert_eq!(ids(0, 6), ["N9", "N10", "N11", "N12", "N13", "N14"]);
-    assert_eq!(&ids(6, 12)[..3], ["N12", "N10", "N14"]);
-    assert_ne!(ids(0, 6), ids(6, 12));
+    assert_eq!(ascending.order, Some(OutputOrder::Asc));
+    assert_eq!(quadtile.order, Some(OutputOrder::Qt));
+    let ascending = ids(ascending);
+    let quadtile = ids(quadtile);
+    assert_eq!(ascending, ["N9", "N10", "N11", "N12", "N13", "N14"]);
+    assert_eq!(quadtile.len(), 6);
+    assert_eq!(&quadtile[..3], ["N12", "N10", "N14"]);
+    assert_ne!(ascending, quadtile);
 }
 
 #[test]
@@ -117,7 +136,7 @@ fn output_cannot_use_a_future_set_or_count_with_spatial_modifiers() {
             "sets": [{"name": "nodes", "source": "n"}],
             "outputs": [output],
         });
-        let error = execute(&lib, serde_json::from_value(plan).unwrap())
+        let error = execute_groups(&lib, serde_json::from_value(plan).unwrap(), &|| Ok(()))
             .err()
             .unwrap();
         assert!(error.contains(diagnostic), "{error}");

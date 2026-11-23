@@ -214,7 +214,7 @@ pub(super) fn sparse_reads<T>(read: impl FnOnce() -> T) -> T {
 
 #[cfg(test)]
 mod tests {
-    use crate::execute;
+    use crate::{GroupData, execute_groups};
     use regol::Library;
     use serde_json::{Value, json};
 
@@ -225,16 +225,15 @@ mod tests {
 
     fn ids(lib: &Library<&[u8]>, windows: Value, sets: Value, show: &str) -> Vec<String> {
         let request = json!({"windows":windows,"sets":sets,"show":[show],"output":"center"});
-        let mut ids: Vec<_> = execute(lib, serde_json::from_value(request).unwrap())
-            .unwrap()
-            .features
+        let mut groups =
+            execute_groups(lib, serde_json::from_value(request).unwrap(), &|| Ok(())).unwrap();
+        assert_eq!(groups.len(), 1);
+        let GroupData::Features(features) = groups.remove(0).data else {
+            panic!("expected selected features");
+        };
+        let mut ids: Vec<_> = features
             .into_iter()
-            .map(|feature| {
-                serde_json::from_str::<Value>(feature.get()).unwrap()["id"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned()
-            })
+            .map(|feature| feature.id().to_string())
             .collect();
         ids.sort();
         ids
@@ -358,7 +357,7 @@ mod tests {
                 ],
                 "show": ["children"], "output": "center"
             });
-            let error = execute(&lib, serde_json::from_value(request).unwrap())
+            let error = execute_groups(&lib, serde_json::from_value(request).unwrap(), &|| Ok(()))
                 .err()
                 .unwrap();
             assert!(error.contains(diagnostic), "{error}");
@@ -385,7 +384,7 @@ mod tests {
                 ],
                 "show": ["result"], "output": "center"
             });
-            let error = execute(&lib, serde_json::from_value(request).unwrap())
+            let error = execute_groups(&lib, serde_json::from_value(request).unwrap(), &|| Ok(()))
                 .err()
                 .unwrap();
             assert!(error.contains(diagnostic), "{error}");

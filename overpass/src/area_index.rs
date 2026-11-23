@@ -207,7 +207,7 @@ mod tests {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
             loop {
                 let path = std::env::temp_dir().join(format!(
-                    "regol-live-area-index-{}-{}",
+                    "regol-overpass-area-index-{}-{}",
                     std::process::id(),
                     NEXT.fetch_add(1, Ordering::Relaxed)
                 ));

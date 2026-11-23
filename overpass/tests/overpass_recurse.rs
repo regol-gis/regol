@@ -1,6 +1,6 @@
 use regol::Library;
-use regol_overpass::execute;
-use serde_json::{Value, json};
+use regol_overpass::{GroupData, execute_groups};
+use serde_json::json;
 
 const STRESS: &[u8] = include_bytes!("fixtures/stress.gol");
 const GEOGRAPHY: &[u8] = include_bytes!("fixtures/geography.gol");
@@ -17,13 +17,14 @@ fn recurse(data: &[u8], window: [f64; 4], selector: &str) -> Result<Vec<String>,
         "show": ["result"],
         "output": "center"
     });
-    let output = execute(&lib, serde_json::from_value(request).unwrap())?;
-    let output = serde_json::to_value(output).unwrap();
-    let mut ids: Vec<_> = output["features"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|feature: &Value| feature["id"].as_str().unwrap().to_string())
+    let mut groups = execute_groups(&lib, serde_json::from_value(request).unwrap(), &|| Ok(()))?;
+    assert_eq!(groups.len(), 1);
+    let GroupData::Features(features) = groups.remove(0).data else {
+        panic!("expected feature output");
+    };
+    let mut ids: Vec<_> = features
+        .into_iter()
+        .map(|feature| feature.id().to_string())
         .collect();
     ids.sort_unstable();
     Ok(ids)

@@ -1,5 +1,5 @@
 use regol::Library;
-use regol_overpass::execute;
+use regol_overpass::{Counts, GroupData, OutputMode, execute_groups, feature_geometry};
 use serde_json::{Value, json};
 
 const GOL: &[u8] = include_bytes!("fixtures/geography.gol");
@@ -23,27 +23,41 @@ fn assert_selected(sets: Vec<Value>, expected: &[&str]) {
         "show": ["selected"],
         "output": "center",
     });
-    let result = execute(&lib, serde_json::from_value(plan.clone()).unwrap()).unwrap();
-    let result = serde_json::to_value(result).unwrap();
-    assert_eq!(result["limited"], Value::Null);
-    assert_eq!(result["skippedGeometries"], 0);
-    assert_eq!(result["skippedReferences"], 0);
-    let mut ids: Vec<_> = result["features"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|feature| feature["id"].as_str().unwrap())
+    let mut groups = execute_groups(&lib, serde_json::from_value(plan.clone()).unwrap(), &|| {
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(groups.len(), 1);
+    let GroupData::Features(features) = groups.remove(0).data else {
+        panic!("expected selected features");
+    };
+    let mut ids: Vec<_> = features
+        .into_iter()
+        .map(|feature| {
+            feature_geometry(feature, OutputMode::Center).unwrap();
+            feature.id().to_string()
+        })
         .collect();
     ids.sort_unstable();
     assert_eq!(ids, expected);
 
     plan["output"] = json!("count");
-    let counted = execute(&lib, serde_json::from_value(plan).unwrap()).unwrap();
+    let mut groups =
+        execute_groups(&lib, serde_json::from_value(plan).unwrap(), &|| Ok(())).unwrap();
+    assert_eq!(groups.len(), 1);
+    let GroupData::Count(counts) = groups.remove(0).data else {
+        panic!("expected count output");
+    };
     let by_type = |prefix| expected.iter().filter(|id| id.starts_with(prefix)).count();
     assert_eq!(
-        serde_json::to_value(counted).unwrap()["counts"],
-        json!({"nodes": by_type('N'), "ways": by_type('W'), "relations": by_type('R'),
-               "total": expected.len()})
+        counts,
+        Counts {
+            nodes: by_type('N'),
+            ways: by_type('W'),
+            relations: by_type('R'),
+            total: expected.len(),
+            ..Counts::default()
+        }
     );
 }
 
@@ -95,15 +109,29 @@ fn area_blocks_preserve_identity_and_type_through_chained_set_operations() {
         })
     };
     for (name, ways, areas) in [("all", 1, 1), ("remaining", 0, 1), ("none", 0, 0)] {
-        let output = execute(&library, serde_json::from_value(request(name)).unwrap()).unwrap();
+        let mut output = execute_groups(
+            &library,
+            serde_json::from_value(request(name)).unwrap(),
+            &|| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(output.len(), 1);
+        let GroupData::Count(counts) = output.remove(0).data else {
+            panic!("expected count output");
+        };
         assert_eq!(
-            serde_json::to_value(output).unwrap()["counts"],
-            json!({"nodes":0,"ways":ways,"relations":0,"areas":areas,"total":ways+areas})
+            counts,
+            Counts {
+                ways,
+                areas: Some(areas),
+                total: ways + areas,
+                ..Counts::default()
+            }
         );
     }
     let mut mixed = request("all");
     mixed["sets"][4]["union"] = json!(["courtyard", "r"]);
-    let result = execute(&library, serde_json::from_value(mixed).unwrap());
+    let result = execute_groups(&library, serde_json::from_value(mixed).unwrap(), &|| Ok(()));
     assert!(result.err().unwrap().contains("all area sets"));
 }
 
@@ -286,7 +314,7 @@ fn around_polyline_rejects_invalid_json_plans() {
             "windows": [[179, -1, 180, 1]], "sets": [reference, selected],
             "show": ["selected"], "output": "count",
         });
-        let error = match execute(&lib, serde_json::from_value(plan).unwrap()) {
+        let error = match execute_groups(&lib, serde_json::from_value(plan).unwrap(), &|| Ok(())) {
             Err(error) => error,
             Ok(_) => panic!("Invalid proximity plan succeeded"),
         };

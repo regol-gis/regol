@@ -1,27 +1,12 @@
 use regol::{Library, Limits};
 use regol_overpass::{
-    Counts, GroupData, OutputDetail, OutputMode, OutputOrder, compile_request, execute,
-    execute_groups, feature_geometry,
+    Counts, GroupData, OutputDetail, OutputMode, OutputOrder, compile_request, execute_groups,
+    feature_geometry,
 };
 use serde_json::{Value, json};
 
 const MONACO: &[u8] = include_bytes!("fixtures/monaco-2026-01-01.gol");
 const WINDOW: [f64; 4] = [7.407, 43.72, 7.44, 43.75];
-
-#[test]
-fn a_literal_box_executes_without_a_separate_viewport() {
-    let library = Library::new(MONACO).unwrap();
-    let text = "node[amenity=cafe](43.733,7.414,43.742,7.426); out count;";
-    let request = compile_request(text, None).unwrap();
-    let live = serde_json::to_value(execute(&library, request).unwrap()).unwrap();
-    assert_eq!(live["counts"]["nodes"], 7);
-
-    // A viewport is consulted only when the query uses {{bbox}}.
-    let unused = [[0.0, 12.0, 1.0, 3.0]];
-    let request = compile_request(text, Some(&unused)).unwrap();
-    let groups = execute_groups(&library, request, &|| Ok(())).unwrap();
-    assert!(matches!(&groups[0].data, GroupData::Count(counts) if counts.nodes == 7));
-}
 
 #[test]
 fn ordered_ids_and_counts_do_not_assemble_output_geometry() {
@@ -74,8 +59,8 @@ fn ordered_ids_and_counts_do_not_assemble_output_geometry() {
         let point = feature_geometry(*center, OutputMode::Center).unwrap();
         assert_eq!(serde_json::to_value(point).unwrap()["type"], "Point");
     }
-    let error = execute(&library, read()).err().unwrap();
-    assert!(error.contains("resource limit exceeded"));
+    let error = feature_geometry(geom[0], OutputMode::Geom).err().unwrap();
+    assert!(error.to_string().contains("resource limit exceeded"));
 }
 
 #[test]
@@ -105,7 +90,7 @@ fn output_name_and_timeout_survive_the_single_output_plan() {
 }
 
 #[test]
-fn neutral_groups_continue_past_the_live_display_cap() {
+fn repeated_output_groups_keep_all_features_and_the_following_count() {
     let library = Library::new(MONACO).unwrap();
     let sets = json!([{"name": "nodes", "source": "n"}]);
     let count = json!({"after": 1, "source": "nodes", "name": "nodes", "mode": "count"});
@@ -124,14 +109,24 @@ fn neutral_groups_continue_past_the_live_display_cap() {
         repeats
     ];
     outputs.push(count);
-    let live = serde_json::to_value(execute(&library, read(outputs.clone())).unwrap()).unwrap();
-    assert_eq!(live["limited"], "feature");
-    assert_eq!(live["features"].as_array().unwrap().len(), 100_000);
-
     let groups = execute_groups(&library, read(outputs), &|| Ok(())).unwrap();
     assert_eq!(groups.len(), repeats + 1);
     assert!(groups[..repeats].iter().all(|group| {
         matches!(&group.data, GroupData::Features(features) if features.len() == nodes)
     }));
     assert!(matches!(&groups[repeats].data, GroupData::Count(counts) if counts.nodes == nodes));
+}
+
+#[test]
+fn a_literal_box_executes_without_a_separate_viewport() {
+    let library = Library::new(MONACO).unwrap();
+    let text = "node[amenity=cafe](43.733,7.414,43.742,7.426); out count;";
+    let unused = [[0.0, 12.0, 1.0, 3.0]];
+    for viewport in [None, Some(&unused[..])] {
+        let request = compile_request(text, viewport).unwrap();
+        let groups = execute_groups(&library, request, &|| Ok(())).unwrap();
+        assert!(
+            matches!(&groups[..], [group] if matches!(&group.data, GroupData::Count(counts) if counts.nodes == 7))
+        );
+    }
 }

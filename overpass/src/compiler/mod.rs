@@ -1,4 +1,4 @@
-//! Compile the supported Overpass QL subset to Live's ordered set plan.
+//! Compile the supported Overpass QL subset to an ordered set plan.
 
 mod conditions;
 mod control;
@@ -26,7 +26,7 @@ const AREA_SET_USAGE: &str =
     "Use area sets in an (area) filter, area union or difference, or with out count.";
 const MAX_SET_DEPTH: usize = 32;
 
-/// Compile QL to the serialized plan shared with Live. Viewport windows are
+/// Compile QL to a serialized query plan. Viewport windows are
 /// consulted only for `{{bbox}}` and use west, south, east, north order.
 pub fn compile(text: &str, viewport: Option<&[[f64; 4]]>) -> Result<Value> {
     let mut parser = Parser {
@@ -56,22 +56,22 @@ pub fn compile(text: &str, viewport: Option<&[[f64; 4]]>) -> Result<Value> {
             .tokens
             .error("Finish with out geom; to display a set."));
     };
-    // Preserve Live's streaming single-output request shape.
-    let display = if parser.outputs.len() == 1 && first.detail.is_none() && first.order.is_none() {
-        Display::Single {
+    // A single unmodified output can stream as candidates are matched.
+    let output = if parser.outputs.len() == 1 && first.detail.is_none() && first.order.is_none() {
+        PlanOutput::Single {
             show: [first.source.clone()],
             output: first.mode,
             output_name: first.name,
         }
     } else {
-        Display::Ordered {
+        PlanOutput::Ordered {
             show: [],
             outputs: parser.outputs,
         }
     };
     serde_json::to_value(Plan {
         sets: parser.sets,
-        display,
+        output,
         timeout: parser.timeout,
     })
     .map_err(|error| error.to_string())
@@ -81,14 +81,14 @@ pub fn compile(text: &str, viewport: Option<&[[f64; 4]]>) -> Result<Value> {
 struct Plan<'text> {
     sets: Vec<Set<'text>>,
     #[serde(flatten)]
-    display: Display<'text>,
+    output: PlanOutput<'text>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timeout: Option<u32>,
 }
 
 #[derive(Serialize)]
 #[serde(untagged, rename_all_fields = "camelCase")]
-enum Display<'text> {
+enum PlanOutput<'text> {
     Single {
         show: [String; 1],
         output: &'text str,

@@ -4,7 +4,7 @@ use regex::Regex;
 
 use super::Result;
 
-// Match unquoted tokens. Whitespace and name syntax follow Live.
+// Match unquoted tokens, including Unicode whitespace and ASCII identifiers.
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?x)

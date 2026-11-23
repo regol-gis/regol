@@ -1,5 +1,5 @@
 use regol::Library;
-use regol_overpass::{execute, execute_cancellable};
+use regol_overpass::{GroupData, execute_groups};
 use serde_json::{Value, json};
 
 const GOL: &[u8] = include_bytes!("fixtures/geography.gol");
@@ -35,17 +35,17 @@ fn loop_query(selector: &str, initial: Option<&str>, count: u32) -> Value {
 }
 
 fn ids(request: Value) -> Result<Vec<String>, String> {
-    let output = execute(
-        &Library::new(GOL).unwrap(),
-        serde_json::from_value(request).unwrap(),
-    )?;
-    let output = serde_json::to_value(output).unwrap();
-    assert_eq!(output["limited"], Value::Null);
-    let mut ids: Vec<_> = output["features"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|feature| feature["id"].as_str().unwrap().to_owned())
+    let library = Library::new(GOL).unwrap();
+    let mut groups = execute_groups(&library, serde_json::from_value(request).unwrap(), &|| {
+        Ok(())
+    })?;
+    assert_eq!(groups.len(), 1);
+    let GroupData::Features(features) = groups.remove(0).data else {
+        panic!("expected feature output");
+    };
+    let mut ids: Vec<_> = features
+        .into_iter()
+        .map(|feature| feature.id().to_string())
         .collect();
     ids.sort_unstable();
     Ok(ids)
@@ -73,8 +73,9 @@ fn zero_iterations_and_singletons_preserve_the_initial_accumulator() {
 fn validates_node_only_sources_and_cancellation() {
     let result = ids(loop_query("w[test:group=arc]", None, 1));
     assert!(result.unwrap_err().contains("must contain only nodes"));
-    let result = execute_cancellable(
-        &Library::new(GOL).unwrap(),
+    let library = Library::new(GOL).unwrap();
+    let result = execute_groups(
+        &library,
         serde_json::from_value(loop_query("n[test:group]", None, 2)).unwrap(),
         &|| Err("cancelled".into()),
     );
