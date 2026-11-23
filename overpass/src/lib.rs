@@ -1,4 +1,4 @@
-//! Compile and evaluate bounded Overpass QL queries on local and range-backed GOL sources.
+#![doc = include_str!("../README.md")]
 pub mod area_index;
 pub mod compiler;
 pub mod geometry;
