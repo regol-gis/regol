@@ -9,9 +9,11 @@ later to build.
 For a crates.io release, run `cargo install --locked regol-cli`. From the
 repository root, run `cargo install --locked --path cli`.
 
-To open a local GOL in an interactive browser map, install the separate server
-with `cargo install --locked regol-live`, then run `regol live region.gol`.
-Pass `--help` after `live` for the server options.
+To explore a local GOL with Regol Live, install the separate server with
+`cargo install --locked regol-live`, then run `regol live region.gol` and
+open the address it prints. Use `regol live --help` for server options. The
+hosted explorer runs GOQL and Overpass QL against the OpenPlanetData planet.
+[Open Regol Live](https://live.regol.org/) · [Local server guide](https://github.com/regol-gis/regol-live#serve-a-local-gol)
 
 ```sh
 regol build region.osm.pbf region.gol

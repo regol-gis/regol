@@ -4,9 +4,13 @@ Read GeoDesk GOL 2.0 files in Rust. Select OpenStreetMap features by tag and
 location, read their geometry, and traverse way nodes and relation members.
 The optional builder compiles OSM PBF snapshots into new GOL files.
 
+Regol Live uses this library to query OpenStreetMap data on an interactive
+map. Try a GOQL selector such as `na[amenity=cafe]` in the hosted explorer.
+[Open Regol Live](https://live.regol.org/)
+
 ## Query a library
 
-For the crates.io release, add `regol = "0.3"` to `[dependencies]`. From a
+For the crates.io release, add `regol = "0.4"` to `[dependencies]`. From a
 source checkout, use `cargo add --path /path/to/regol` in your application.
 
 ```rust
