@@ -104,7 +104,9 @@ impl<'text> Tokens<'text> {
             offset += raw.len();
             let start = line;
             line += raw.bytes().filter(|&byte| byte == b'\n').count();
-            if raw.starts_with("/*") && !raw.ends_with("*/") {
+            if let Some(comment) = raw.strip_prefix("/*")
+                && !comment.ends_with("*/")
+            {
                 return Err(diagnostic(start, "unclosed comment."));
             }
             if raw.starts_with(whitespace) || raw.starts_with("//") || raw.starts_with("/*") {

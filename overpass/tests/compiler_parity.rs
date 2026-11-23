@@ -160,6 +160,11 @@ fn set_and_foreach_blocks_preserve_their_depth_boundaries() {
 
 #[test]
 fn quote_scanning_handles_long_unterminated_strings_and_comment_precedence() {
+    assert_eq!(
+        compile("node(0,0,1,1); out;\n/*/", None).unwrap_err(),
+        "Line 2: unclosed comment."
+    );
+    assert!(compile("node(0,0,1,1); out; /**/", None).is_ok());
     let quoted = r#"node[name="an escaped \"quote\" with /* punctuation */"](0,0,1,1); out;"#;
     let plan = compile(quoted, None).unwrap();
     assert_eq!(

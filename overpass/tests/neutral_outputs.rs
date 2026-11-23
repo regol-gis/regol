@@ -9,6 +9,21 @@ const MONACO: &[u8] = include_bytes!("fixtures/monaco-2026-01-01.gol");
 const WINDOW: [f64; 4] = [7.407, 43.72, 7.44, 43.75];
 
 #[test]
+fn a_literal_box_executes_without_a_separate_viewport() {
+    let library = Library::new(MONACO).unwrap();
+    let text = "node[amenity=cafe](43.733,7.414,43.742,7.426); out count;";
+    let request = compile_request(text, None).unwrap();
+    let live = serde_json::to_value(execute(&library, request).unwrap()).unwrap();
+    assert_eq!(live["counts"]["nodes"], 7);
+
+    // A viewport is consulted only when the query uses {{bbox}}.
+    let unused = [[0.0, 12.0, 1.0, 3.0]];
+    let request = compile_request(text, Some(&unused)).unwrap();
+    let groups = execute_groups(&library, request, &|| Ok(())).unwrap();
+    assert!(matches!(&groups[0].data, GroupData::Count(counts) if counts.nodes == 7));
+}
+
+#[test]
 fn ordered_ids_and_counts_do_not_assemble_output_geometry() {
     let library = Library::with_limits(
         MONACO,

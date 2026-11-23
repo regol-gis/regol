@@ -196,7 +196,9 @@ pub fn compile_request(text: &str, viewport: Option<&[[f64; 4]]>) -> Result<Requ
     let value = compiler::compile(text, viewport)?;
     let plan = serde_json::from_value(value).map_err(|e| e.to_string())?;
     Ok(Request {
-        windows: viewport.unwrap_or_default().to_vec(),
+        // Every QL source is bounded by its selection or an input set. The
+        // compiler has already expanded {{bbox}} in those selections.
+        windows: vec![[-180.0, -90.0, 180.0, 90.0]],
         body: Body::Program(plan),
     })
 }
