@@ -9,7 +9,7 @@ pub mod read_hints;
 mod relationship;
 pub use program::outputs::{
     Counts, ExecutedGroup, ExecutionStats, FeaturePreparation, FeatureStatus, GroupData,
-    OutputDetail, OutputGroup, OutputMode, OutputOrder, OutputSink,
+    OutputDetail, OutputGroup, OutputMode, OutputOrder, OutputSink, SetStats,
 };
 use program::{Plan, outputs::GroupCollector};
 

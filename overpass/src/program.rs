@@ -16,9 +16,11 @@ use crate::{
 use candidates::{Candidates, matches};
 use membership::Membership;
 use outputs::{
-    ExecutionStats, FeatureStatus, OutputGroup, OutputMode, OutputSink, OutputStatement,
+    ExecutionStats, FeatureStatus, OutputGroup, OutputMode, OutputSink, OutputStatement, SetStats,
 };
-use regol::{Bounds, Feature, FeatureId, Library, Query, SpatialFilter, source::Source};
+use regol::{
+    Bounds, Feature, FeatureId, Library, Query, SpatialFilter, SpatialPredicate, source::Source,
+};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
@@ -42,6 +44,8 @@ pub(crate) struct Plan {
     #[serde(default)]
     pub outputs: Vec<OutputStatement>,
     pub timeout: Option<u64>,
+    #[serde(default, rename = "setStats")]
+    report_set_stats: bool,
 }
 #[derive(Deserialize)]
 pub(crate) struct Set {
@@ -79,15 +83,34 @@ impl Set {
     }
     fn feature_inputs(&self) -> impl Iterator<Item = &str> {
         self.set_inputs()
-            .chain(self.filters.iter().map(|f| f.reference.as_str()))
+            .chain(self.filters.iter().filter_map(|f| match f {
+                Filter::Spatial { reference, .. } => Some(reference.as_str()),
+                Filter::Goql { .. } => None,
+            }))
             .chain(self.overpass.iter().filter_map(|s| s.around_reference()))
     }
 }
 #[derive(Deserialize)]
-pub(crate) struct Filter {
-    pub predicate: String,
-    pub reference: String,
-    pub meters: Option<f64>,
+#[serde(untagged)]
+pub(crate) enum Filter {
+    Spatial {
+        predicate: String,
+        reference: String,
+        meters: Option<f64>,
+    },
+    Goql {
+        selector: String,
+    },
+}
+
+enum ParsedFilter<'a> {
+    Spatial(SpatialPredicate, &'a str),
+    Goql(Query),
+}
+
+struct ParsedSet<'a> {
+    source: Option<Query>,
+    filters: Vec<ParsedFilter<'a>>,
 }
 
 fn feature_ids<S: Source>(
@@ -119,7 +142,7 @@ impl Plan {
     fn parse_selectors<'a>(
         &'a self,
         mapped_areas: &mut HashSet<&'a str>,
-    ) -> Result<Vec<Option<Query>>, String> {
+    ) -> Result<Vec<ParsedSet<'a>>, String> {
         // Validate every declaration, even when show() leaves a branch unused.
         let mut names = HashMap::new();
         let mut queries = Vec::new();
@@ -180,9 +203,23 @@ impl Plan {
             {
                 return Err(AREA_SET_USAGE.into());
             }
-            for filter in &set.filters {
-                predicate(&filter.predicate, filter.meters)?;
-            }
+            let filters = set
+                .filters
+                .iter()
+                .map(|filter| match filter {
+                    Filter::Spatial {
+                        predicate: name,
+                        reference,
+                        meters,
+                    } => Ok(ParsedFilter::Spatial(
+                        predicate(name, *meters)?,
+                        reference.as_str(),
+                    )),
+                    Filter::Goql { selector } => Query::parse(selector)
+                        .map(ParsedFilter::Goql)
+                        .map_err(|e| format!("${}: GOQL filter: {e}", set.name)),
+                })
+                .collect::<Result<_, String>>()?;
             if let Some(selection) = &set.overpass {
                 selection.validate()?;
                 if let Some(membership) = &set.membership {
@@ -207,7 +244,7 @@ impl Plan {
             } else {
                 Some(Query::parse(&set.source).map_err(|e| format!("${}: {e}", set.name))?)
             };
-            queries.push(q);
+            queries.push(ParsedSet { source: q, filters });
             names.insert(set.name.as_str(), index);
             if set.map_to_area || area_block {
                 mapped_areas.insert(set.name.as_str());
@@ -315,7 +352,8 @@ impl Plan {
         let mut skipped = HashSet::new();
         let mut skipped_refs = HashSet::new();
         let mut pending = self.outputs.iter().enumerate().peekable();
-        let mut sets = self.sets.iter().zip(&queries);
+        let mut set_stats = Vec::new();
+        let mut sets = self.sets.iter().zip(queries);
         'program: for i in 0..=self.sets.len() {
             check()?;
             while let Some((index, output)) = pending.next_if(|(_, output)| output.after == i) {
@@ -332,13 +370,14 @@ impl Plan {
                     break 'program;
                 }
             }
-            let Some((set, query)) = sets.next() else {
+            let Some((set, parsed)) = sets.next() else {
                 break;
             };
             if !needed.contains(set.name.as_str()) {
                 stored.retain(|name, _| last_use[name] > i);
                 continue;
             }
+            let query = parsed.source;
             let mut scan = QueryProgress {
                 set_index: i,
                 candidates_read: 0,
@@ -422,9 +461,15 @@ impl Plan {
                 .then(|| node_area_windows(scan_windows, check))
                 .transpose()?;
             let local_windows = node_windows.as_deref().unwrap_or(scan_windows);
-            for filter in &set.filters {
-                let p = predicate(&filter.predicate, filter.meters)?;
-                let matcher = if filter.reference == "geometry" {
+            for filter in parsed.filters {
+                let (p, reference) = match filter {
+                    ParsedFilter::Spatial(predicate, name) => (predicate, name),
+                    ParsedFilter::Goql(query) => {
+                        filters.push(Matcher::Goql(query));
+                        continue;
+                    }
+                };
+                let matcher = if reference == "geometry" {
                     let geometry = attached.as_ref().unwrap();
                     filter_vertices += geometry::vertices(geometry);
                     if filter_vertices > MAX_VERTICES {
@@ -436,13 +481,13 @@ impl Plan {
                 } else {
                     Matcher::from_set(
                         p,
-                        &stored[filter.reference.as_str()],
+                        &stored[reference],
                         &mut bad_refs,
                         |geometry| sink.reference(geometry),
                         &mut filter_vertices,
                         check,
                     )
-                    .map_err(|e| format!("${}: {e}", filter.reference))?
+                    .map_err(|e| format!("${reference}: {e}"))?
                 };
                 filters.push(matcher);
             }
@@ -450,6 +495,7 @@ impl Plan {
             skipped.extend(&bad_refs);
             let mut members = Vec::new();
             let mut stopped = false;
+            let mut matches_kept = 0;
             if !filters.iter().any(|f| matches!(f, Matcher::Never)) {
                 let prepared = query
                     .as_ref()
@@ -632,6 +678,7 @@ impl Plan {
                             }
                         }
                     }
+                    matches_kept += 1;
                     if keep || self.output != OutputMode::Count {
                         seen.insert(id);
                     }
@@ -644,6 +691,14 @@ impl Plan {
                     skipped_refs.extend(bad.iter().copied());
                 }
                 skipped.extend(bad);
+            }
+            if self.report_set_stats {
+                set_stats.push(SetStats {
+                    set_index: i,
+                    candidates_read: scan.candidates_read,
+                    matches_kept,
+                    retained: members.len(),
+                });
             }
             stored.retain(|name, _| last_use[name] > i);
             if keep {
@@ -661,6 +716,7 @@ impl Plan {
             let _ = sink.group(self.show_group(0), counts)?;
         }
         Ok(ExecutionStats {
+            sets: set_stats,
             skipped_geometries: skipped.len(),
             skipped_references: skipped_refs.len(),
         })

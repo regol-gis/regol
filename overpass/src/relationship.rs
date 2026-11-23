@@ -15,6 +15,7 @@ type IndexedFilter = GeomWithData<Rectangle<[f64; 2]>, SpatialFilter>;
 
 pub(crate) enum Matcher {
     Never,
+    Goql(regol::Query),
     Single(SpatialFilter),
     Distance(DistanceIndex),
     Overpass(crate::overpass::SpatialMatcher),
@@ -137,6 +138,7 @@ impl Matcher {
     ) -> regol::Result<bool> {
         match self {
             Self::Never => Ok(false),
+            Self::Goql(query) => query.matches(feature),
             Self::Distance(index) => index.matches(assembled(feature, geometry)?),
             Self::Overpass(filter) => filter.matches(feature, check),
             Self::Single(filter) => {
