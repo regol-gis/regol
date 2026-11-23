@@ -15,8 +15,8 @@ use std::{
 };
 
 const SHARD_COUNT: u16 = 256;
-const MAX_MANIFEST_BYTES: u64 = 4096;
-const MAX_SHARD_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_MANIFEST_BYTES: usize = 4096;
+const MAX_SHARD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PROBES: usize = 250_000;
 
 #[derive(Deserialize)]
@@ -34,16 +34,10 @@ pub struct AreaIndex {
 
 impl AreaIndex {
     pub fn open(directory: &Path, source: &impl Source) -> Result<Self, String> {
-        let manifest: Manifest = read_json(&directory.join("manifest.json"), MAX_MANIFEST_BYTES)?;
-        if manifest.version != 1 || manifest.shards != SHARD_COUNT {
-            return Err("Expected a named-area index v1 with 256 shards.".into());
-        }
-        let actual =
-            snapshot(source).map_err(|error| format!("Identifying the GOL snapshot: {error}"))?;
-        if manifest.snapshot != actual {
-            return Err("The named-area index belongs to a different GOL snapshot. Rebuild the index for this file.".into());
-        }
-        let generation = directory.join(&actual);
+        let path = directory.join("manifest.json");
+        let manifest = read_file(&path, MAX_MANIFEST_BYTES)?;
+        let snapshot = validate_manifest(&path.display().to_string(), &manifest, source)?;
+        let generation = directory.join(&snapshot);
         if !generation.is_dir() {
             return Err(format!(
                 "Named-area index generation {} is missing.",
@@ -52,7 +46,7 @@ impl AreaIndex {
         }
         Ok(Self {
             generation,
-            snapshot: actual,
+            snapshot,
         })
     }
 
@@ -61,46 +55,84 @@ impl AreaIndex {
         request: &mut Request,
         check: &impl Fn() -> Result<(), String>,
     ) -> Result<(), String> {
-        // Only one shard needs to be in memory at a time. Multiple lookups of
-        // the same shard share its parse, including repeated names.
-        let mut by_shard = BTreeMap::<u8, Vec<&mut Lookup>>::new();
-        for lookup in request.named_areas_mut() {
-            check()?;
-            by_shard
-                .entry(shard(&lookup.name))
-                .or_default()
-                .push(lookup);
-        }
-        let mut probe_count = 0usize;
-        for (id, lookups) in by_shard {
-            check()?;
-            let entries = self.read_shard(id, check)?;
-            for lookup in lookups {
-                check()?;
-                let probes = entries
-                    .get(&lookup.name)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-                probe_count += probes.len();
-                if probe_count > MAX_PROBES {
-                    return Err("Named-area lookups exceed the probe budget. Use fewer or more specific names.".into());
-                }
-                lookup.index = Some(IndexEntry {
-                    snapshot: self.snapshot.clone(),
-                    probes: probes.to_vec(),
-                });
-            }
-        }
-        Ok(())
+        hydrate_shards(
+            group_lookups(request, check)?,
+            &self.snapshot,
+            |file, max| read_file(&self.generation.join(file), max),
+            check,
+        )
     }
+}
 
-    fn read_shard(
-        &self,
-        id: u8,
-        check: &impl Fn() -> Result<(), String>,
-    ) -> Result<HashMap<String, Vec<[i32; 2]>>, String> {
-        let path = self.generation.join(format!("{id:02x}.json"));
-        let rows: Vec<(String, Vec<[i32; 2]>)> = read_json(&path, MAX_SHARD_BYTES)?;
+/// Hydrate exact-name lookups from an index whose files are provided by the caller.
+/// `read` receives a path relative to the index root and a limit on its size in
+/// bytes. Lookups share shard reads, and the manifest must match the open GOL
+/// before any shards are read. Requests without named areas read no assets.
+pub fn hydrate_from(
+    request: &mut Request,
+    source: &impl Source,
+    mut read: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+    check: &impl Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    let lookups = group_lookups(request, check)?;
+    if lookups.is_empty() {
+        return Ok(());
+    }
+    let file = "manifest.json";
+    let manifest = read(file, MAX_MANIFEST_BYTES)?;
+    check()?;
+    let snapshot = validate_manifest(file, &manifest, source)?;
+    hydrate_shards(
+        lookups,
+        &snapshot,
+        |file, max| read(&format!("{snapshot}/{file}"), max),
+        check,
+    )
+}
+
+fn validate_manifest(file: &str, bytes: &[u8], source: &impl Source) -> Result<String, String> {
+    let manifest: Manifest = parse_json(file, bytes, MAX_MANIFEST_BYTES)?;
+    if manifest.version != 1 || manifest.shards != SHARD_COUNT {
+        return Err("Expected a named-area index v1 with 256 shards.".into());
+    }
+    let actual =
+        snapshot(source).map_err(|error| format!("Identifying the GOL snapshot: {error}"))?;
+    if manifest.snapshot != actual {
+        return Err("The named-area index belongs to a different GOL snapshot. Rebuild the index for this file.".into());
+    }
+    Ok(actual)
+}
+
+fn group_lookups<'a>(
+    request: &'a mut Request,
+    check: &impl Fn() -> Result<(), String>,
+) -> Result<BTreeMap<u8, Vec<&'a mut Lookup>>, String> {
+    let mut by_shard = BTreeMap::<u8, Vec<&mut Lookup>>::new();
+    for lookup in request.named_areas_mut() {
+        check()?;
+        by_shard
+            .entry(shard(&lookup.name))
+            .or_default()
+            .push(lookup);
+    }
+    Ok(by_shard)
+}
+
+fn hydrate_shards(
+    by_shard: BTreeMap<u8, Vec<&mut Lookup>>,
+    snapshot: &str,
+    mut read: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+    check: &impl Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    let mut probe_count = 0usize;
+    // Read and parse one shard at a time. One parse covers every lookup of
+    // that shard, including repeated names.
+    for (id, lookups) in by_shard {
+        check()?;
+        let file = format!("{id:02x}.json");
+        let bytes = read(&file, MAX_SHARD_BYTES)?;
+        check()?;
+        let rows: Vec<(String, Vec<[i32; 2]>)> = parse_json(&file, &bytes, MAX_SHARD_BYTES)?;
         let mut entries = HashMap::with_capacity(rows.len());
         for (name, probes) in rows {
             check()?;
@@ -110,30 +142,50 @@ impl AreaIndex {
                 ));
             }
         }
-        Ok(entries)
+        for lookup in lookups {
+            check()?;
+            let probes = entries
+                .get(&lookup.name)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            probe_count += probes.len();
+            if probe_count > MAX_PROBES {
+                return Err(
+                    "Named-area lookups exceed the probe budget. Use fewer or more specific names."
+                        .into(),
+                );
+            }
+            lookup.index = Some(IndexEntry {
+                snapshot: snapshot.into(),
+                probes: probes.to_vec(),
+            });
+        }
     }
+    Ok(())
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path, max: u64) -> Result<T, String> {
+fn parse_json<T: DeserializeOwned>(file: &str, bytes: &[u8], max: usize) -> Result<T, String> {
+    if bytes.len() > max {
+        return Err(format!("The area index file {file} exceeds {max} bytes."));
+    }
+    serde_json::from_slice(bytes).map_err(|e| format!("Parsing {file}: {e}"))
+}
+
+fn read_file(path: &Path, max: usize) -> Result<Vec<u8>, String> {
     let display = path.display();
     let meta = path
         .metadata()
         .map_err(|e| format!("Reading {display}: {e}"))?;
-    if !meta.is_file() || meta.len() > max {
+    if !meta.is_file() || meta.len() > max as u64 {
         return Err(format!(
             "Expected {display} to be a regular file no larger than {max} bytes."
         ));
     }
     let mut bytes = Vec::new();
     File::open(path)
-        .and_then(|file| file.take(max + 1).read_to_end(&mut bytes))
+        .and_then(|file| file.take(max as u64 + 1).read_to_end(&mut bytes))
         .map_err(|e| format!("Reading {display}: {e}"))?;
-    if bytes.len() as u64 > max {
-        return Err(format!(
-            "The area index file {display} exceeds {max} bytes."
-        ));
-    }
-    serde_json::from_slice(&bytes).map_err(|e| format!("Parsing {display}: {e}"))
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -285,5 +337,105 @@ mod tests {
         .unwrap();
         let error = index.hydrate(&mut plan, &|| Ok(())).unwrap_err();
         assert!(error.contains("duplicate name"), "{error}");
+    }
+
+    #[test]
+    fn supplied_assets_share_exact_name_shards_and_check_snapshot_first() {
+        let snapshot = snapshot(&GOL).unwrap();
+        let manifest = |snapshot: &str| {
+            serde_json::to_vec(&json!({"version": 1, "snapshot": snapshot, "shards": 256})).unwrap()
+        };
+        let mut plan = request(&[NAME]);
+        let error = hydrate_from(
+            &mut plan,
+            &GOL,
+            |file, max| {
+                assert_eq!(file, "manifest.json");
+                assert_eq!(max, MAX_MANIFEST_BYTES);
+                Ok(manifest("v1-wrong"))
+            },
+            &|| Ok(()),
+        )
+        .unwrap_err();
+        assert!(error.contains("different GOL snapshot"));
+        assert!(plan.named_areas_mut().next().unwrap().index.is_none());
+
+        let name = "Île-de-France";
+        let index_file = format!("{snapshot}/{:02x}.json", shard(name));
+        let probes = [[3, -4], [-5, 6]];
+        let mut plan = request(&[name, name]);
+        let mut files = ["manifest.json", &index_file].into_iter();
+        hydrate_from(
+            &mut plan,
+            &GOL,
+            |file, max| {
+                assert_eq!(Some(file), files.next());
+                if file == "manifest.json" {
+                    Ok(manifest(&snapshot))
+                } else {
+                    assert_eq!(max, MAX_SHARD_BYTES);
+                    Ok(serde_json::to_vec(&json!([[name, probes]])).unwrap())
+                }
+            },
+            &|| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(files.next(), None);
+        for entry in plan
+            .named_areas_mut()
+            .map(|lookup| lookup.index.take().unwrap())
+        {
+            assert_eq!(entry.snapshot, snapshot);
+            assert_eq!(entry.probes, probes);
+        }
+    }
+
+    #[test]
+    fn supplied_assets_enforce_size_coordinates_and_aggregate_probe_budget() {
+        let snapshot = snapshot(&GOL).unwrap();
+        let manifest =
+            serde_json::to_vec(&json!({"version": 1, "snapshot": snapshot, "shards": 256}))
+                .unwrap();
+        let mut plan = request(&[]);
+        hydrate_from(
+            &mut plan,
+            &GOL,
+            |_, _| panic!("unexpected asset read"),
+            &|| Ok(()),
+        )
+        .unwrap();
+
+        let error = hydrate_from(
+            &mut request(&[NAME]),
+            &GOL,
+            |_, max| Ok(vec![0; max + 1]),
+            &|| Ok(()),
+        )
+        .unwrap_err();
+        assert!(error.contains("exceeds 4096 bytes"));
+
+        for (probes, message) in [
+            (json!([[i64::from(i32::MAX) + 1, 0]]), "invalid value"),
+            (
+                json!(vec![[0, 0]; MAX_PROBES / 2 + 1]),
+                "exceed the probe budget",
+            ),
+        ] {
+            let shard = serde_json::to_vec(&json!([[NAME, probes]])).unwrap();
+            let error = hydrate_from(
+                &mut request(&[NAME, NAME]),
+                &GOL,
+                |file, _| {
+                    Ok(if file == "manifest.json" {
+                        manifest.clone()
+                    } else {
+                        shard.clone()
+                    })
+                },
+                &|| Ok(()),
+            )
+            .unwrap_err();
+            assert!(error.contains(message), "{error}");
+        }
     }
 }

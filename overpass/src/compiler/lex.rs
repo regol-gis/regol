@@ -4,14 +4,12 @@ use regex::Regex;
 
 use super::Result;
 
-// Match the Overpass token stream without letting quoted punctuation or comments
-// leak into the statement parser. Its whitespace and name syntax follow Live.
+// Match unquoted tokens. Whitespace and name syntax follow Live.
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?x)
         [\x09-\x0D\x20\xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+
         | //[^\n]* | /\*(?s:.*?)(?:\*/|$)
-        | "(?:\\(?s:.)|[^"\\])*" | '(?:\\(?s:.)|[^'\\])*'
         | \{\{bbox\}\} | -> | == | != | !~ | <= | >= | && | \|\|
         | [+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?
         | [A-Za-z_][A-Za-z_0-9]* | (?s:.)
@@ -79,8 +77,31 @@ impl<'text> Tokens<'text> {
     pub(super) fn new(text: &'text str) -> Result<Self> {
         let mut items = Vec::new();
         let mut line = 1;
-        for found in TOKEN.find_iter(text) {
-            let raw = found.as_str();
+        let mut offset = 0;
+        let mut unterminated = [false; 2];
+        while offset < text.len() {
+            let tail = &text[offset..];
+            let raw = match tail.as_bytes()[0] {
+                quote @ (b'"' | b'\'') => {
+                    let failed = &mut unterminated[usize::from(quote == b'\'')];
+                    // When a quote cannot close, every subsequent quote of this
+                    // kind was skipped through an escape and cannot close either.
+                    let end = if *failed {
+                        1
+                    } else if let Some(close) = closing_quote(&tail[1..], quote) {
+                        close + 2
+                    } else {
+                        *failed = true;
+                        1
+                    };
+                    &tail[..end]
+                }
+                _ => TOKEN
+                    .find_at(text, offset)
+                    .expect("next Overpass token")
+                    .as_str(),
+            };
+            offset += raw.len();
             let start = line;
             line += raw.bytes().filter(|&byte| byte == b'\n').count();
             if raw.starts_with("/*") && !raw.ends_with("*/") {
@@ -164,6 +185,20 @@ impl<'text> Tokens<'text> {
         self.position += 1;
         Ok(number)
     }
+}
+
+fn closing_quote(tail: &str, quote: u8) -> Option<usize> {
+    let mut bytes = tail.bytes().enumerate();
+    while let Some((index, byte)) = bytes.next() {
+        if byte == quote {
+            return Some(index);
+        }
+        if byte == b'\\' {
+            // Backslash and both quote delimiters are single-byte ASCII.
+            bytes.next();
+        }
+    }
+    None
 }
 
 fn unquote(raw: &str, regex: bool) -> Option<String> {

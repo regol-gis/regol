@@ -474,8 +474,9 @@ fn polygon_filter(tokens: &mut Tokens<'_>) -> Result<Polygon> {
             .then(|| field.parse::<f64>().ok())
             .flatten()
     };
-    for fields in fields.chunks_exact(2) {
-        let point = decimal(fields[0]).zip(decimal(fields[1]));
+    let (pairs, _) = fields.as_chunks::<2>();
+    for &[latitude, longitude] in pairs {
+        let point = decimal(latitude).zip(decimal(longitude));
         let Some((lat, lon)) = point.filter(|&(lat, lon)| lat.abs() <= 90.0 && lon.abs() <= 180.0)
         else {
             return Err(tokens.error("Invalid polygon coordinates."));

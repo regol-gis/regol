@@ -1,4 +1,4 @@
-use regol_overpass::compiler::compile;
+use regol_overpass::{Request, compile_request, compiler::compile};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -23,6 +23,13 @@ fn compiler_matches_the_live_javascript_oracle() {
                     same_plan(&actual, &expected, false),
                     "{label}\nexpected: {expected}\nactual: {actual}"
                 );
+                let viewport = case.viewport.as_deref();
+                let cli = compile_request(&case.text, viewport)
+                    .unwrap_or_else(|error| panic!("{label}\n{error}"));
+                let live: Request = serde_json::from_slice(&serde_json::to_vec(&actual).unwrap())
+                    .unwrap_or_else(|error| panic!("{label}\n{error}"));
+                assert_eq!(cli.timeout(), expected["timeout"].as_u64(), "{label}");
+                assert_eq!(live.timeout(), cli.timeout(), "{label}");
             }
             (None, Some(error)) => assert_eq!(actual, Err(error), "{label}"),
             _ => panic!("{label}\ninvalid oracle fixture"),
@@ -111,4 +118,62 @@ fn viewport_is_required_only_for_a_bbox_placeholder() {
     let supplied = [[0.0, 0.0, 1.0, 1.0]];
     let query = r#"node[name="café"](50,179,52,-179); out count;"#;
     assert_eq!(compile(query, Some(&supplied)), compile(query, None));
+}
+
+#[test]
+fn high_precision_spatial_literals_survive_the_live_json_round_trip() {
+    let plan = compile("node(around:18.860222312132986,50,0); out count;", None).unwrap();
+    let radius = &plan["sets"][0]["overpass"]["around"]["meters"];
+    assert_eq!(radius.as_f64(), Some(18.860222312132986));
+    let decoded: Value = serde_json::from_slice(&serde_json::to_vec(&plan).unwrap()).unwrap();
+    assert_eq!(plan, decoded);
+}
+
+#[test]
+fn set_and_foreach_blocks_preserve_their_depth_boundaries() {
+    let set_query = |depth| {
+        format!(
+            "{}node(0,0,1,1);{}out count;",
+            "(".repeat(depth),
+            ");".repeat(depth)
+        )
+    };
+    assert!(compile_request(&set_query(32), None).is_ok());
+    assert_eq!(
+        compile(&set_query(33), None).unwrap_err(),
+        "Line 1: Set block nesting limit reached."
+    );
+
+    let foreach_query = |depth| {
+        format!(
+            "node(0,0,1,1)->.input; foreach.input->.item {{{}(.result; .item;)->.result;{}}} .result out count;",
+            "if(item.count(nodes) == 1) {".repeat(depth),
+            "}".repeat(depth)
+        )
+    };
+    assert!(compile_request(&foreach_query(15), None).is_ok());
+    assert_eq!(
+        compile(&foreach_query(16), None).unwrap_err(),
+        "Line 1: Foreach block nesting limit reached."
+    );
+}
+
+#[test]
+fn quote_scanning_handles_long_unterminated_strings_and_comment_precedence() {
+    let quoted = r#"node[name="an escaped \"quote\" with /* punctuation */"](0,0,1,1); out;"#;
+    let plan = compile(quoted, None).unwrap();
+    assert_eq!(
+        plan["sets"][0]["overpass"]["tags"][0]["value"],
+        r#"an escaped "quote" with /* punctuation */"#
+    );
+
+    let unfinished = format!("node(0,0,1,1)[name=\"{}", r#"\""#.repeat(16_384));
+    assert_eq!(
+        compile(&unfinished, None).unwrap_err(),
+        "Line 1: Unterminated quoted string."
+    );
+    assert_eq!(
+        compile(&format!("{unfinished}\n/*"), None).unwrap_err(),
+        "Line 2: unclosed comment."
+    );
 }
