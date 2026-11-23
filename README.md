@@ -10,7 +10,7 @@ that overlap the requested region and tags—making country- and continent-scale
 OSM lookups fast on ordinary disks, memory-mapped files, or custom range-read
 backends (such as object storage).
 
-The workspace contains three Rust crates with no GeoDesk, C or SQLite dependencies.
+The workspace contains three Rust crates.
 
 - **`regol`** (library crate) — embed GOL reading, GOQL tag queries, spatial
   predicates, geometry assembly, spherical measurements, relation/way traversal,
@@ -113,9 +113,9 @@ Add the library to your crate:
 
 ```toml
 [dependencies]
-regol = "0.2"
+regol = "0.3"
 # Optional features:
-# regol = { version = "0.2", features = ["mmap", "build", "way-checkpoints"] }
+# regol = { version = "0.3", features = ["mmap", "build", "way-checkpoints"] }
 ```
 
 When `mmap` is not enabled, `regol` enforces `#![forbid(unsafe_code)]`.

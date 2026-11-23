@@ -6,7 +6,7 @@ The optional builder compiles OSM PBF snapshots into new GOL files.
 
 ## Query a library
 
-For the crates.io release, add `regol = "0.2"` to `[dependencies]`. From a
+For the crates.io release, add `regol = "0.3"` to `[dependencies]`. From a
 source checkout, use `cargo add --path /path/to/regol` in your application.
 
 ```rust
