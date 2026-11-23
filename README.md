@@ -1,7 +1,7 @@
 <h1><img src="docs/regol-wordmark.png" width="330" height="110" alt="regol"></h1>
 
-**regol** is an independent, pure-Rust GeoDesk GOL 2.0 reader, spatial query
-engine, and OpenStreetMap PBF compiler.
+**regol** (**r**ust **e**nhanced **GOL**) is an independent, pure-Rust GeoDesk
+GOL 2.0 reader, spatial query engine, and OpenStreetMap PBF compiler.
 
 A GOL (Geo-Object Library) reorganizes an OpenStreetMap `.osm.pbf` snapshot
 into a single indexed binary file grouped by zoom-pyramid tiles, tag categories,
