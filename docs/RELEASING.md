@@ -1,7 +1,6 @@
 # Releasing regol
 
-The `regol` library crate and the `regol-cli` package (providing the combined
-`regol` command with `build`, `query`, `info`, and `check`) ship together.
+The `regol`, `regol-overpass` and `regol-cli` crates ship together.
 A release is identified by an annotated Git tag such as `v0.2.0`. Each tag
 identifies one commit and one set of published files.
 
@@ -16,8 +15,8 @@ and so on for release candidates. [Cargo compatibility conventions](https://doc.
 
 ## Prepare and verify
 
-1. Set `workspace.package.version` in the root manifest and the `regol`
-   dependency version in `cli/Cargo.toml`. Both packages inherit the workspace
+1. Set `workspace.package.version` in the root manifest and the matching workspace dependency versions in
+   `overpass/Cargo.toml` and `cli/Cargo.toml`. All three crates inherit the workspace
    version. For a version change, refresh the local package entries in both
    lockfiles and include their diffs in the release PR.
 
@@ -49,10 +48,10 @@ git push origin "refs/tags/v$version"
 ```
 
 GitHub Actions checks that the tag matches the manifest and the commit belongs
-to `main`. It runs the workspace tests, packages both crates, builds the Linux
+to `main`. It runs the workspace tests, packages all three crates, builds the Linux
 x86-64 GNU `regol` binary from the archived sources, checks its version, and
 builds and queries a small GOL. It publishes the release notes, binary archive
-with dependency licenses, both source crates and `SHA256SUMS` to GitHub
+with dependency licenses, all three source crates and `SHA256SUMS` to GitHub
 Releases. Release candidates are marked as prereleases. Download the assets and
 checksum file, then run `sha256sum -c SHA256SUMS` to verify them.
 
@@ -70,16 +69,18 @@ from a clean checkout of the release tag.
 
 ```sh
 cargo package -p regol --list
+cargo package -p regol-overpass --list
 cargo package -p regol-cli --list
 cargo publish --locked --dry-run -p regol --all-features
 ```
 
-Publish the library first. Once its exact version is visible in the registry,
-dry-run the CLI against that dependency and publish the CLI. The published
-CLI cannot resolve a path into the workspace.
+Publish `regol` first, then `regol-overpass`, then the CLI. Wait for each version
+to become visible in the registry before checking the next package.
 
 ```sh
 cargo publish --locked -p regol
+cargo publish --locked --dry-run -p regol-overpass
+cargo publish --locked -p regol-overpass
 cargo publish --locked --dry-run -p regol-cli
 cargo publish --locked -p regol-cli
 ```

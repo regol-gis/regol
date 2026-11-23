@@ -980,9 +980,23 @@ dependencies = [
  "miniz_oxide",
  "rayon",
  "regol",
+ "regol-overpass",
  "rustc-hash",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "regol-overpass"
+version = "0.2.2"
+dependencies = [
+ "geo",
+ "rayon",
+ "regex",
+ "regol",
+ "rstar 0.12.2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

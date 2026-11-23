@@ -1,5 +1,6 @@
 use super::{ExportResult, antimeridian::CutGeometry, kind_name};
 use regol::{Bounds, Feature, FeatureType, Geometry, Point, Polygon, TagValue, source::Source};
+use regol_overpass::{OutputDetail, OutputMode, feature_geometry as overpass_geometry};
 use std::{
     cmp::Ordering,
     io::{self, Write},
@@ -161,6 +162,35 @@ impl Options {
         }
         Ok(())
     }
+}
+
+pub(crate) fn write_overpass_geojson<S: Source>(
+    features: Vec<Feature<'_, S>>,
+    output: &mut impl Write,
+    mode: OutputMode,
+    detail: Option<OutputDetail>,
+    check: &impl Fn() -> Result<(), String>,
+) -> EncodeResult<()> {
+    let options = Options {
+        keys: (detail == Some(OutputDetail::Skel)).then(Vec::new),
+        ..Options::default()
+    };
+    let encoder = geojson::Encoder::new(Format::GeoJson, &options, DEFAULT_PRECISION);
+    let mut scratch = Scratch::default();
+    let mut buf = Vec::with_capacity(FLUSH_THRESHOLD);
+    for (index, feature) in features.into_iter().enumerate() {
+        check()?;
+        if mode == OutputMode::Center {
+            let point = overpass_geometry(feature, mode)
+                .map_err(|error| format!("{}: {error}", feature.id()))?;
+            encoder.center_into(&mut buf, feature, point, index == 0, &mut scratch)?;
+        } else {
+            encoder.feature_into(&mut buf, feature, index == 0, &mut scratch)?;
+        }
+        flush_buf(output, &mut buf)?;
+    }
+    output.write_all(&buf)?;
+    Ok(())
 }
 
 pub(crate) fn write<'a, S: Source + 'a>(

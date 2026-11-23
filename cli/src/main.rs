@@ -1,16 +1,16 @@
 mod area;
 mod build;
 mod export;
+mod gol;
 mod inspect;
+mod overpass;
 
 use area::Area;
-use regol::{
-    Bounds, DictionaryLoading, Feature, Library, Limits, Query, QueryExecutor, source::Source,
-};
+use regol::{Bounds, DictionaryLoading, Feature, Library, Query, QueryExecutor, source::Source};
 use std::{
     env,
     error::Error,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     io::{self, BufWriter, Write},
     path::PathBuf,
     process::ExitCode,
@@ -24,11 +24,14 @@ const USAGE: &str = "Usage:
               [--keys KEYS] [--columns COLUMNS] [--precision DIGITS] [--typed-tags]
               [--complete-relations TYPES] [--threads N] [--unordered|--ordered]
               [--no-mmap] [--eager-dictionary] [--http-page-kib N]
+  regol overpass FILE_OR_URL --file QUERY.ql [--bbox WEST,SOUTH,EAST,NORTH]
+                 [-f count|ids|geojson] [--area-index DIRECTORY]
   regol info FILE_OR_URL
   regol check FILE_OR_URL
 
 Build compiles an OpenStreetMap .osm.pbf file into a GOL 2.0 file; run
 `regol build --help` for layout and tuning options.
+Overpass evaluates Overpass QL queries. Run `regol overpass --help` for options.
 Query writes to stdout. The default format is count. The bounding box selects
 features by their stored bounds. A GeoJSON area selects features by geometry
 intersection.
@@ -66,9 +69,7 @@ struct Options {
     format: Format,
     text: export::text::Options,
     completion: export::Completion,
-    mmap: bool,
-    http_page_bytes: Option<usize>,
-    dictionary: DictionaryLoading,
+    input: gol::Options,
     threads: Option<usize>,
     unordered: bool,
 }
@@ -106,9 +107,7 @@ impl Options {
             format: Format::Count,
             text: export::text::Options::default(),
             completion: export::Completion::default(),
-            mmap: true,
-            http_page_bytes: None,
-            dictionary: DictionaryLoading::OnDemand,
+            input: gol::Options::default(),
             threads: None,
             unordered: true,
         };
@@ -179,23 +178,18 @@ impl Options {
                         .set_precision(value.to_str().ok_or("precision must be UTF-8")?)?;
                 }
                 "--lazy-dictionary" if inline.is_none() => {
-                    options.dictionary = DictionaryLoading::OnDemand
+                    options.input.dictionary = DictionaryLoading::OnDemand
                 }
                 "--eager-dictionary" if inline.is_none() => {
-                    options.dictionary = DictionaryLoading::Eager
+                    options.input.dictionary = DictionaryLoading::Eager
                 }
-                "--mmap" if inline.is_none() => options.mmap = true,
-                "--no-mmap" if inline.is_none() => options.mmap = false,
+                "--mmap" if inline.is_none() => options.input.mmap = true,
+                "--no-mmap" if inline.is_none() => options.input.mmap = false,
                 "--http-page-kib" => {
-                    if http_url(options.file.as_os_str()).is_none() {
+                    if gol::http_url(options.file.as_os_str()).is_none() {
                         return Err("--http-page-kib requires an HTTP(S) URL".into());
                     }
-                    let bytes = value()?
-                        .to_str()
-                        .and_then(|s| s.parse::<usize>().ok())
-                        .and_then(|n| n.checked_mul(1024))
-                        .ok_or("--http-page-kib requires a size in KiB")?;
-                    options.http_page_bytes = Some(bytes);
+                    options.input.set_http_page_kib(&value()?)?;
                 }
                 "--threads" | "-j" => {
                     let value = value()?;
@@ -363,12 +357,6 @@ impl<T, L: Iterator<Item = T>, R: Iterator<Item = T>> Iterator for Candidates<L,
     }
 }
 
-fn http_url(file: &OsStr) -> Option<&str> {
-    let value = file.to_str()?;
-    let (scheme, _) = value.split_once("://")?;
-    (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then_some(value)
-}
-
 fn execute() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1).peekable();
     if args.len() == 1
@@ -382,6 +370,10 @@ fn execute() -> Result<(), Box<dyn Error>> {
     if args.peek().is_some_and(|arg| arg == "build") {
         return build::execute(args);
     }
+    if args.peek().is_some_and(|arg| arg == "overpass") {
+        args.next();
+        return overpass::execute(args);
+    }
     if args
         .peek()
         .is_some_and(|arg| arg == "check" || arg == "info")
@@ -394,34 +386,10 @@ fn execute() -> Result<(), Box<dyn Error>> {
     };
     let area = options.area.as_deref().map(Area::open).transpose()?;
     let mut output = BufWriter::with_capacity(128 * 1024, io::stdout());
-    if let Some(url) = http_url(options.file.as_os_str()) {
-        let source = match options.http_page_bytes {
-            Some(size) => regol::source::HttpSource::with_page_size(url, size)?,
-            None => regol::source::HttpSource::open(url)?,
-        };
-        run(
-            &Library::with_dictionary_loading(source, Limits::default(), options.dictionary)?,
-            &options,
-            area.as_ref(),
-            &mut output,
-        )?;
-    } else if options.mmap {
-        // SAFETY: `regol query` requires the GOL file to remain immutable for
-        // the lifetime of the command unless `--no-mmap` is specified.
-        let source = unsafe { regol::source::MappedFile::open(&options.file)? };
-        run(
-            &Library::with_dictionary_loading(source, Limits::default(), options.dictionary)?,
-            &options,
-            area.as_ref(),
-            &mut output,
-        )?;
-    } else {
-        run(
-            &Library::open_with_dictionary_loading(&options.file, options.dictionary)?,
-            &options,
-            area.as_ref(),
-            &mut output,
-        )?;
+    match options.input.open(&options.file)? {
+        gol::Input::Http(library) => run(&library, &options, area.as_ref(), &mut output)?,
+        gol::Input::Mmap(library) => run(&library, &options, area.as_ref(), &mut output)?,
+        gol::Input::File(library) => run(&library, &options, area.as_ref(), &mut output)?,
     }
     output.flush()?;
     Ok(())
