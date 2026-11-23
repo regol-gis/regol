@@ -29,3 +29,7 @@ Use `execute_stream` with an `OutputSink` to consume results incrementally. The 
 Pass west/south/east/north windows to `compile_request` when the query contains `{{bbox}}`. An explicit box or named-area lookup can run without a viewport. `compiler::compile` returns the serialized query plan. Native clients can populate a request's named lookups with `area_index::AreaIndex::hydrate` and generate a matching index with `area_index::build`.
 
 The CLI exposes the same compiler and executor through `regol overpass`. [Command-line examples](https://github.com/regol-gis/regol/tree/main/cli#overpass-ql)
+
+Structured plan clients can add `{"selector":"*[name]"}` to a set’s `filters` to test a GOQL selector on each incoming feature. These filters run in pipeline order and can refine a stored set without a second index scan. All selectors are parsed before execution, including unused declarations.
+
+Set `"setStats":true` on a request to collect `ExecutionStats::sets` for the steps actually executed. Each entry identifies the original set index, candidate iterator reads, matches kept for output or reuse, and handles retained for later steps. Overlapping output-only matches already emitted by an earlier set can be skipped. A sink that stops early receives counts for the work performed so far.

@@ -83,9 +83,24 @@ pub enum FeatureStatus {
     Stop,
 }
 
+/// Work committed by one executed set in the original plan. Collected when a
+/// structured request asks for `setStats`. Early-stopped queries report work so far.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetStats {
+    pub set_index: usize,
+    /// Candidate iterator reads, before pipeline filters and deduplication.
+    pub candidates_read: usize,
+    /// Matches accepted for output or reuse, counted once if used for both.
+    pub matches_kept: usize,
+    /// Feature handles stored for later sets or ordered output.
+    pub retained: usize,
+}
+
 /// Distinct feature IDs whose geometry could not be used during execution.
 #[derive(Default)]
 pub struct ExecutionStats {
+    pub sets: Vec<SetStats>,
     pub skipped_geometries: usize,
     pub skipped_references: usize,
 }
