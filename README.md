@@ -3,6 +3,10 @@
 **regol** (**r**ust **e**nhanced **GOL**) is an independent, pure-Rust GeoDesk
 GOL 2.0 reader, spatial query engine, and OpenStreetMap PBF compiler.
 
+Try **Regol Live** to run GOQL or Overpass QL on an interactive map of
+OpenStreetMap data from OpenPlanetData. Run `na[amenity=cafe]` in GOQL to see
+the cafés in the current map view. [Open Regol Live](https://live.regol.org/)
+
 A GOL (Geo-Object Library) reorganizes an OpenStreetMap `.osm.pbf` snapshot
 into a single indexed binary file grouped by zoom-pyramid tiles, tag categories,
 and Hilbert-ordered R-trees. Queries read only the tiles and R-tree branches
@@ -41,6 +45,18 @@ cargo install --locked --path cli
 # Or from crates.io
 cargo install --locked regol-cli
 ```
+
+### Explore a local GOL with Regol Live
+
+With Regol CLI 0.4 or later installed, add the separate Live server and open your own GOL.
+
+```sh
+cargo install --locked regol-live
+regol live region.gol
+```
+
+Open the address printed in the terminal to query the file on a map.
+[Regol Live source and service setup](https://github.com/regol-gis/regol-live#serve-a-local-gol)
 
 ### Build a GOL from OpenStreetMap PBF
 
@@ -113,9 +129,9 @@ Add the library to your crate:
 
 ```toml
 [dependencies]
-regol = "0.3"
+regol = "0.4"
 # Optional features:
-# regol = { version = "0.3", features = ["mmap", "build", "way-checkpoints"] }
+# regol = { version = "0.4", features = ["mmap", "build", "way-checkpoints"] }
 ```
 
 When `mmap` is not enabled, `regol` enforces `#![forbid(unsafe_code)]`.
@@ -276,7 +292,7 @@ cargo run --locked --release --no-default-features --features gob --example impo
 ## Documentation
 
 - **Library guide:** [src/README.md](src/README.md) — API walkthrough, `FeatureSet`, spatial queries, and Cargo features.
-- **Command-line guide:** [cli/README.md](cli/README.md) — `regol build`, `query`, `overpass`, `info`, `check`, GIS/CSV export options, and antimeridian handling.
+- **Command-line guide:** [cli/README.md](cli/README.md) — `regol build`, `query`, `overpass`, `live`, `info`, `check`, GIS/CSV export options, and antimeridian handling.
 - **Compatibility & format:** [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) · [docs/FORMAT.md](docs/FORMAT.md) — GOQL semantics, UTF-8/error contract, geometry rules, and GOL 2.0 binary layout notes.
 - **Validation & releasing:** [docs/VALIDATION.md](docs/VALIDATION.md) · [docs/RELEASING.md](docs/RELEASING.md) — test reproduction, packaging, and release workflow.
 

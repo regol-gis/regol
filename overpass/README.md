@@ -28,7 +28,7 @@ Use `execute_stream` with an `OutputSink` to consume results incrementally. The 
 
 Pass west/south/east/north windows to `compile_request` when the query contains `{{bbox}}`. An explicit box or named-area lookup can run without a viewport. `compiler::compile` returns the serialized query plan. Native clients can populate a request's named lookups with `area_index::AreaIndex::hydrate` and generate a matching index with `area_index::build`.
 
-The CLI exposes the same compiler and executor through `regol overpass`. [Command-line examples](https://github.com/regol-gis/regol/tree/main/cli#overpass-ql)
+Regol Live uses this compiler and executor for its **Overpass QL** mode. Select it in the hosted map and run `node[amenity=cafe]({{bbox}}); out count;` to count café nodes in the current view. The CLI runs the same query with `regol overpass`. [Open Regol Live](https://live.regol.org/) · [Command-line examples](https://github.com/regol-gis/regol/tree/main/cli#overpass-ql)
 
 Structured plan clients can add `{"selector":"*[name]"}` to a set’s `filters` to test a GOQL selector on each incoming feature. These filters run in pipeline order and can refine a stored set without a second index scan. All selectors are parsed before execution, including unused declarations.
 
