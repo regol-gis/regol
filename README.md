@@ -10,15 +10,13 @@ that overlap the requested region and tags—making country- and continent-scale
 OSM lookups fast on ordinary disks, memory-mapped files, or custom range-read
 backends (such as object storage).
 
-regol ships as two separate workspace crates with no GeoDesk, C, or SQLite
-dependencies:
+The workspace contains three Rust crates.
 
 - **`regol`** (library crate) — embed GOL reading, GOQL tag queries, spatial
   predicates, geometry assembly, spherical measurements, relation/way traversal,
   and optional multi-threaded PBF compilation directly in Rust applications.
-- **`regol-cli`** (CLI crate, `regol` binary) — a single command-line tool to
-  `build`, `info`, `check`, and `query` GOL files and export results to
-  GeoJSON, GeoJSONL, WKT, CSV, OSM XML, or PBF.
+- **`regol-overpass`** compiles a bounded subset of Overpass QL and returns ordered feature or count groups from a GOL. It runs natively and in WebAssembly.
+- **`regol-cli`** provides the `regol` binary for building, inspecting and checking GOL files. Use `regol query` for GOQL or `regol overpass` for a multi-statement Overpass QL file. GOQL exports include GeoJSON, GeoJSONL, WKT, CSV, OSM XML and PBF.
 
 ---
 
@@ -115,9 +113,9 @@ Add the library to your crate:
 
 ```toml
 [dependencies]
-regol = "0.2"
+regol = "0.3"
 # Optional features:
-# regol = { version = "0.2", features = ["mmap", "build", "way-checkpoints"] }
+# regol = { version = "0.3", features = ["mmap", "build", "way-checkpoints"] }
 ```
 
 When `mmap` is not enabled, `regol` enforces `#![forbid(unsafe_code)]`.
@@ -213,7 +211,7 @@ Use `DictionaryLoading::OnDemand` via `Library::open_with_dictionary_loading` or
 `Library::with_dictionary_loading` when startup latency matters (e.g. cold
 serverless opens or ID/count scans that do not inspect tag spellings).
 
-The CLI accepts an HTTP(S) URL in `query`, `info` and `check`. A bounded query
+The CLI accepts an HTTP(S) URL in `query`, `overpass`, `info` and `check`. A bounded query
 can read a small part of a planet GOL. Direct HTTPS prefers HTTP/3 and shares
 one QUIC connection across workers. HTTP/1.1 fallback reuses a connection pool.
 Each handle retains its fetched ranges until drop. By default the first 128 KiB
@@ -278,7 +276,7 @@ cargo run --locked --release --no-default-features --features gob --example impo
 ## Documentation
 
 - **Library guide:** [src/README.md](src/README.md) — API walkthrough, `FeatureSet`, spatial queries, and Cargo features.
-- **Command-line guide:** [cli/README.md](cli/README.md) — `regol build`, `query`, `info`, `check`, GIS/CSV export options, and antimeridian handling.
+- **Command-line guide:** [cli/README.md](cli/README.md) — `regol build`, `query`, `overpass`, `info`, `check`, GIS/CSV export options, and antimeridian handling.
 - **Compatibility & format:** [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) · [docs/FORMAT.md](docs/FORMAT.md) — GOQL semantics, UTF-8/error contract, geometry rules, and GOL 2.0 binary layout notes.
 - **Validation & releasing:** [docs/VALIDATION.md](docs/VALIDATION.md) · [docs/RELEASING.md](docs/RELEASING.md) — test reproduction, packaging, and release workflow.
 

@@ -4,6 +4,7 @@ use super::{
     push_properties, tag_key,
 };
 use regol::FeatureType;
+use regol_overpass::geometry::GeoGeometry;
 use std::io::{self, Write};
 
 const COLLECTION_START: &[u8] = b"{\"type\":\"FeatureCollection\",\"features\":[";
@@ -232,6 +233,19 @@ impl<'a> Encoder<'a> {
                 self.write_suffix(out, feature, bounds, &mut scratch.integer)
             }
         }
+    }
+
+    pub(super) fn center_into(
+        &self,
+        out: &mut Vec<u8>,
+        feature: Feature<'_, impl Source>,
+        point: GeoGeometry,
+        first: bool,
+        scratch: &mut Scratch,
+    ) -> EncodeResult<()> {
+        self.write_prefix(out, feature.id(), first, &mut scratch.integer);
+        serde_json::to_writer(&mut *out, &point)?;
+        self.write_suffix(out, feature, None, &mut scratch.integer)
     }
 
     #[inline]

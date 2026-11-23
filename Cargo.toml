@@ -1,10 +1,10 @@
 [workspace]
-members = ["cli"]
+members = ["cli", "overpass"]
 default-members = ["."]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.2"
+version = "0.3.0"
 rust-version = "1.90.0"
 homepage = "https://regol.org"
 repository = "https://github.com/regol-gis/regol"

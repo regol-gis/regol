@@ -25,7 +25,8 @@ degrees and tests stored feature bounds. `--area` tests geometry against a
 GeoJSON polygon. For spatial PBF exports, `--complete-relations` controls which
 relation types are completed. The default is `multipolygon`.
 
-Pass an HTTP(S) URL in place of the GOL filename to `query`, `info`, or `check`.
+Pass an HTTP(S) URL in place of the GOL filename to `query`, `overpass`, `info`,
+or `check`.
 Direct HTTPS tries HTTP/3 on the URL’s port and falls back to pooled HTTP/1.1.
 Plain HTTP and connections routed through a configured proxy use the pool.
 The server must serve the GOL with identity encoding and return HTTP 206 with
@@ -51,6 +52,53 @@ while preserving serial query order (buffering up to 4 MiB of encoded text and
 streaming oversized records directly). Large XML exports format sorted chunks in
 parallel, and large PBF exports overlap compression of one block with
 preparation of the next.
+
+### Overpass QL
+
+`regol overpass` evaluates the Overpass QL subset shared with Regol Live.
+Supply a UTF-8 query file with `--file` or pass `--file -` to read stdin.
+Use `--bbox WEST,SOUTH,EAST,NORTH` to fill a `{{bbox}}` placeholder. West
+greater than east crosses the antimeridian. Literal QL boxes use the QL order
+south, west, north, east.
+
+```sh
+printf '%s\n' 'node[amenity=cafe]({{bbox}}); out count;' |
+  regol overpass region.gol --file - --bbox=-0.14,51.49,-0.10,51.52
+
+printf '%s\n' 'node[amenity=cafe](51.49,-0.14,51.52,-0.10)->.cafes; .cafes out asc;' > cafes.ql
+regol overpass region.gol --file cafes.ql -f ids
+regol overpass region.gol --file cafes.ql -f geojson > cafes.geojson
+
+regol overpass uk.gol --file cli/examples/midlands.ql -f ids
+```
+
+Each `out` produces a JSON object on its own line, in statement order.
+Records carry the output set `name` (`_` for the default set), QL `mode`,
+and any explicit `detail` or `order` modifiers. The default `ids` format
+uses type-qualified IDs such as `N123`. An `out count` record has `counts`
+in every format. Use `-f count` to summarize feature groups with the same
+per-type and total counts. For example, the Midlands query writes one
+`groups` record with IDs and then one `groups` record with counts.
+The UK snapshot used to check CLI and Live parity produced 15 IDs.
+
+```jsonl
+{"name":"groups","mode":"geom","detail":"body","ids":["N5088910764","N5088910763","N5088910767","N5088910766","N5088910765","N5707833521","N5707831720","N5707831715","N5707831719","N5707831718","N4596374136","N4631922525","N4596374158","N4596374126","N3523485319"]}
+{"name":"groups","mode":"count","counts":{"nodes":15,"ways":0,"relations":0,"total":15}}
+```
+
+Results depend on the snapshot. `-f geojson` writes feature groups as GeoJSON
+FeatureCollections with the output metadata as foreign members. Use it
+directly as a GeoJSON file for a query with a single feature output. For
+multiple outputs, process the response as newline-delimited JSON and
+select each FeatureCollection. `out center` emits center points and
+`out skel` emits empty properties. OSM tags are strings.
+
+Named-area queries on local GOLs use the sibling `FILE.gol.areas` directory
+when present and can otherwise scan the file. Pass `--area-index DIRECTORY`
+to select a local index explicitly. Named-area queries on an HTTP(S) GOL need
+a matching index. Generate one with Regol Live's `regol-area-index` tool.
+A query with `[timeout:SECONDS];` fails with a nonzero exit status if it
+times out. Execution budget failures also return a nonzero status.
 
 ### GIS and CSV output
 

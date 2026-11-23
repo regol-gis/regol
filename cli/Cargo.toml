@@ -9,7 +9,7 @@ repository.workspace = true
 keywords.workspace = true
 categories = ["science::geo", "command-line-utilities"]
 readme = "README.md"
-include = ["/src/**", "/tests/**", "/LICENSE", "/README.md"]
+include = ["/src/**", "/tests/**", "/examples/**", "/LICENSE", "/README.md"]
 description = "Build, query, inspect, and export GeoDesk GOL 2.0 files"
 
 [[bin]]
@@ -20,7 +20,8 @@ path = "src/main.rs"
 geo = { version = "0.31", default-features = false }
 miniz_oxide = { version = "0.9.1", features = ["simd"] }
 rayon = "1"
-regol = { version = "0.2.2", path = "..", default-features = false, features = ["mmap", "build", "parallel", "http"] }
+regol = { version = "0.3.0", path = "..", default-features = false, features = ["mmap", "build", "parallel", "http"] }
+regol-overpass = { version = "0.3.0", path = "../overpass" }
 itoa = "1"
 rustc-hash = "2"
 serde_json = "1"

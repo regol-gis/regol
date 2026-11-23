@@ -47,6 +47,7 @@ jobs:
           export PATH="/tmp/regol-cross/ziglang:$PATH"
           rustup target add aarch64-apple-darwin x86_64-pc-windows-gnu wasm32-unknown-unknown
           cargo check --locked -p regol --no-default-features --features gob --target wasm32-unknown-unknown
+          cargo check --locked -p regol-overpass --target wasm32-unknown-unknown
           cargo check --locked --workspace --features mmap --target aarch64-apple-darwin --target x86_64-pc-windows-gnu
       - name: Check minimum supported Rust
         run: |

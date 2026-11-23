@@ -21,7 +21,7 @@ pub(super) fn execute(mut args: impl Iterator<Item = OsString>) -> Result<(), Bo
         println!("Usage: regol {name} FILE_OR_URL");
         return Ok(());
     }
-    if let Some(url) = super::http_url(&file) {
+    if let Some(url) = super::gol::http_url(&file) {
         inspect(Library::new(HttpSource::open(url)?)?, check)
     } else {
         inspect(Library::new(CachedFile::open(file, 16 << 20)?)?, check)

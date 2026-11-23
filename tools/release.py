@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+CRATES = ("regol", "regol-overpass", "regol-cli")
 TARGET = "x86_64-unknown-linux-gnu"
 
 
@@ -52,10 +53,12 @@ def main():
         ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], cwd=ROOT))
     packages = {p["name"]: p for p in metadata["packages"]}
     version = packages["regol"]["version"]
-    cli = packages["regol-cli"]
-    dependency = next(d for d in cli["dependencies"] if d["name"] == "regol")
-    if cli["version"] != version or dependency["req"] not in (f"^{version}", f"={version}"):
-        parser.error("regol, regol-cli and the CLI's regol dependency must agree on the version")
+    for name in CRATES:
+        if packages[name]["version"] != version:
+            parser.error(f"{name} must inherit the workspace version {version}")
+        for dep in packages[name]["dependencies"]:
+            if dep["name"] in CRATES and dep["req"] not in (f"^{version}", f"={version}"):
+                parser.error(f"{name} must depend on {dep['name']} {version}")
     number = r"(?:0|[1-9][0-9]*)"
     if not re.fullmatch(rf"{number}\.{number}\.{number}(?:-rc\.{number})?", version):
         parser.error("use X.Y.Z or X.Y.Z-rc.N for a release version")
@@ -78,15 +81,17 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=out.parent) as temp:
         staging = Path(temp)
-        packages = [target_dir / "package" / f"{pkg}-{version}.crate" for pkg in ("regol", "regol-cli")]
+        packages = [target_dir / "package" / f"{pkg}-{version}.crate" for pkg in CRATES]
         workspace = staging / "sources"
         workspace.mkdir()
         for package in packages:
             with tarfile.open(package) as source:
                 source.extractall(workspace, filter="data")
+        members = [f"{crate}-{version}" for crate in CRATES]
+        patches = "".join(f'{crate} = {{ path = "{crate}-{version}" }}\n' for crate in CRATES[:-1])
         (workspace / "Cargo.toml").write_text(
-            f'[workspace]\nresolver = "3"\nmembers = ["regol-{version}", "regol-cli-{version}"]\n'
-            f'[patch.crates-io]\nregol = {{ path = "regol-{version}" }}\n')
+            f'[workspace]\nresolver = "3"\nmembers = {json.dumps(members)}\n'
+            f'[patch.crates-io]\n{patches}')
         shutil.copyfile(ROOT / "Cargo.lock", workspace / "Cargo.lock")
         cargo("test", "--locked", "-p", "regol-cli", "--target-dir", target_dir, cwd=workspace)
         cargo("build", "--release", "--locked", "--target", TARGET, "--target-dir", target_dir,

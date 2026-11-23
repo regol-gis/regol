@@ -1,0 +1,23 @@
+[package]
+name = "regol-overpass"
+version.workspace = true
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories = ["science::geo", "parser-implementations"]
+readme = "README.md"
+description = "Compile and evaluate a bounded subset of Overpass QL on GeoDesk GOL files"
+
+[dependencies]
+regol = { version = "0.3.0", path = "..", default-features = false }
+regex = "1"
+rstar = "0.12"
+geo = { version = "0.31", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = "1"
