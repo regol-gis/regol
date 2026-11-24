@@ -13,6 +13,8 @@ mod parallel;
 const DEFAULT_PRECISION: usize = 7;
 const MAX_PRECISION: usize = 15;
 const FLUSH_THRESHOLD: usize = 64 * 1024;
+const UNORDERED_CHUNK_BYTES: usize = 128 * 1024;
+
 #[derive(Clone, Copy)]
 pub(crate) struct Partitioning {
     threads: usize,
@@ -20,11 +22,12 @@ pub(crate) struct Partitioning {
 }
 
 impl Partitioning {
-    pub(crate) fn new(threads: usize, _source: &impl Source) -> Self {
+    pub(crate) fn new(threads: usize, _source: &impl Source, _setup: std::time::Duration) -> Self {
         // A short prefix on a local mapping may run entirely in the pages
-        // brought in by opening the dictionary and tile directory.
+        // brought in by opening the dictionary and tile directory. Extend the
+        // observation window only when opening and preparing already took time.
         #[cfg(target_os = "linux")]
-        if _source.mapped_file().is_some() {
+        if _setup >= std::time::Duration::from_millis(16) && _source.mapped_file().is_some() {
             return Self {
                 threads,
                 prefix_steps: 4096,
@@ -36,7 +39,6 @@ impl Partitioning {
         }
     }
 }
-const UNORDERED_CHUNK_BYTES: usize = 128 * 1024;
 
 static DIGITS2: &[u8; 200] = b"0001020304050607080910111213141516171819\
 2021222324252627282930313233343536373839\
@@ -1336,6 +1338,24 @@ mod tests {
     use super::*;
     use parallel::{BATCH_SIZE, CHUNK_SIZE, MIN_PARALLEL_SIZE};
     use serde_json::{Value, json};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_slow_mapped_setup_extends_the_export_prefix() -> std::io::Result<()> {
+        use std::time::Duration;
+        let file = tempfile::tempfile()?;
+        file.set_len(4096)?;
+        // SAFETY: This test owns the anonymous file and leaves it immutable.
+        let map = unsafe { regol::source::MappedFile::from_immutable_file(&file)? };
+        let slow = Duration::from_millis(16);
+        assert_eq!(Partitioning::new(8, &map, Duration::ZERO).prefix_steps, 512);
+        assert_eq!(Partitioning::new(8, &map, slow).prefix_steps, 4096);
+        assert_eq!(
+            Partitioning::new(8, &b"bytes".as_slice(), slow).prefix_steps,
+            512
+        );
+        Ok(())
+    }
 
     #[test]
     fn fast_decimal_7_matches_general_formatter() {
