@@ -46,6 +46,10 @@ impl Activity {
 
 #[allow(unsafe_code)]
 fn activity() -> Option<Activity> {
+    #[cfg(all(test, feature = "parallel"))]
+    if let Some(sample) = test_support::simulated_activity() {
+        return Some(sample);
+    }
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage writes one rusage to a valid writable pointer.
     if unsafe { libc::getrusage(libc::RUSAGE_THREAD, usage.as_mut_ptr()) } != 0 {
@@ -146,10 +150,38 @@ impl<'a> MappedPrefix<'a> {
         })
     }
 
+    /// getrusage counts everything on the calling thread. Advance the baseline
+    /// by the callback's increments so only the intervening traversal is sampled.
+    pub(crate) fn excluding<T>(sample: &mut Option<Self>, callback: impl FnOnce() -> T) -> T {
+        let Some(pilot) = sample else {
+            return callback();
+        };
+        let before = activity();
+        let result = callback();
+        if let Some((before, after)) = before.zip(activity()) {
+            let start = &mut pilot.faults.start;
+            start.major_faults += after.major_faults.saturating_sub(before.major_faults);
+            start.input_blocks += after.input_blocks.saturating_sub(before.input_blocks);
+            start.wall += after.wall - before.wall;
+            start.cpu += after.cpu.saturating_sub(before.cpu);
+        } else {
+            // An unmeasured callback makes this prefix unusable.
+            *sample = None;
+        }
+        result
+    }
+
+    pub(crate) fn max_matches(steps: u64) -> u64 {
+        steps / 8
+    }
+
     pub(crate) fn finish(self, matches: u64, steps: u64) -> Option<DemandAdvice<'a>> {
         // Broad scans can use the read-ahead they pay for. Observe the actual
         // prefix, including its I/O, before changing advice on a selective scan.
-        if steps == 0 || matches > steps / 8 || self.faults.speculate() != Some(false) {
+        if steps == 0
+            || matches > Self::max_matches(steps)
+            || self.faults.speculate() != Some(false)
+        {
             return None;
         }
         self.source.demand_advice()

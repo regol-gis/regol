@@ -14,6 +14,8 @@ use std::{
 
 #[cfg(all(feature = "mmap", target_os = "linux"))]
 mod mapped;
+#[cfg(all(feature = "mmap", target_os = "linux"))]
+use crate::source::MappedPrefix;
 
 const DEFAULT_PREFIX_STEPS: u64 = 4096;
 const WORKER_BATCH_SIZE: usize = 1024;
@@ -183,7 +185,7 @@ impl QueryExecutor {
         }
         let prefix_steps = default_prefix_steps(query, bounds);
         #[cfg(all(feature = "mmap", target_os = "linux"))]
-        let sample = crate::source::MappedPrefix::start(query.library.source());
+        let sample = MappedPrefix::start(query.library.source());
         let prefix = query.count_features(&mut features, step_budget(prefix_steps))?;
         if features.finished() {
             return Ok(prefix);
@@ -303,7 +305,9 @@ impl QueryExecutor {
     /// shared traversal-step limit. Each worker initializes its accumulator
     /// once and reuses it across all partitions it claims. On Linux, a selective
     /// mapped prefix that stalls on large reads can switch to demand paging.
-    /// If that prefix already produced matches, the same cursor continues serially.
+    /// The sample excludes the application's `identity` and `fold` callbacks.
+    /// A qualifying prefix with matches continues on the same cursor.
+    /// This scan releases its mapping advice before invoking `reduce`.
     pub fn try_fold_reduce_once<'a, S: Source + Sync, T: Send>(
         threads: usize,
         query: &PreparedQuery<'a, '_, S>,
@@ -317,18 +321,26 @@ impl QueryExecutor {
         if threads <= 1 {
             return query.fold_unbounded(&mut features, identity(), fold);
         }
+        let initial = identity();
         #[cfg(all(feature = "mmap", target_os = "linux"))]
-        let sample = crate::source::MappedPrefix::start(query.library.source());
+        let mut sample = MappedPrefix::start(query.library.source());
         #[cfg(all(feature = "mmap", target_os = "linux"))]
         let mut matches = 0;
         let prefix = query.fold_in(
             &mut features,
             step_budget(prefix_steps),
-            identity(),
+            initial,
             |acc, feature| {
                 #[cfg(all(feature = "mmap", target_os = "linux"))]
-                {
+                if sample.is_some() {
                     matches += 1;
+                    // Stop sampling dense prefixes. A caller may request an
+                    // arbitrarily long prefix, so bound accounting work as well.
+                    if matches <= MappedPrefix::max_matches(prefix_steps.min(DEFAULT_PREFIX_STEPS))
+                    {
+                        return MappedPrefix::excluding(&mut sample, || fold(acc, feature));
+                    }
+                    sample = None;
                 }
                 fold(acc, feature)
             },
@@ -467,6 +479,9 @@ impl QueryExecutor {
             }
             run_worker_ref(0, prefix);
         });
+
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        drop(demand);
 
         let mut slots = results.into_iter().filter_map(|s| s.into_inner().unwrap());
         let mut total = match slots.next() {

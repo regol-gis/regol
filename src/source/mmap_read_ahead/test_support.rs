@@ -242,3 +242,140 @@ fn cheap_take_one_does_not_initialize_helpers() -> crate::Result<()> {
     assert!(mapped.source().helpers.as_ref().unwrap().0.get().is_none());
     Ok(())
 }
+
+#[cfg(feature = "parallel")]
+pub(super) use fold_tests::simulated_activity;
+
+#[cfg(feature = "parallel")]
+mod fold_tests {
+    use super::*;
+    use crate::{Library, Query, QueryExecutor, Result};
+    use std::{cell::Cell, sync::atomic::AtomicUsize};
+
+    // Only the test's calling thread supplies synthetic rusage. Worker threads
+    // and concurrent tests continue to read their own kernel counters.
+    thread_local! {
+        static ACTIVITY: Cell<Option<Activity>> = const { Cell::new(None) };
+        static FAULT_ON_SAMPLE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn cold_read() {
+        ACTIVITY.set(ACTIVITY.get().map(|mut sample| {
+            sample.major_faults += 2;
+            sample.input_blocks += 2 * BULK_BLOCKS_PER_FAULT;
+            sample.wall += Duration::from_millis(10);
+            sample
+        }));
+    }
+
+    pub(in crate::source::mmap_read_ahead) fn simulated_activity() -> Option<Activity> {
+        if FAULT_ON_SAMPLE.get() {
+            cold_read();
+        }
+        ACTIVITY.get()
+    }
+
+    #[derive(PartialEq)]
+    enum ColdRead {
+        Identity,
+        Fold,
+        Traversal,
+        TraversalAfterMatch,
+    }
+
+    fn assert_random_advice(map: &MappedFile, expected: bool) {
+        assert_eq!(map.advice_users().demand_scans != 0, expected);
+        if let Some(random) = flag_at(map, 0, "rr") {
+            assert_eq!(random, expected);
+        }
+    }
+
+    fn run_fold(cold: ColdRead, prefix: u64) -> Result<()> {
+        let source = mapped_fixture(include_bytes!("../../../tests/fixtures/wide_exports.gol"))?;
+        let library = Library::new(source)?;
+        let query = Query::parse("n[name='*0']")?;
+        let prepared = query.prepare(&library)?;
+        let expected = prepared.count()?;
+        let mut features = prepared.features(None);
+        let mut remaining = prefix;
+        let prefix_count = prepared.count_features(&mut features, || {
+            let proceed = remaining > 0;
+            remaining = remaining.saturating_sub(1);
+            Ok(proceed)
+        })?;
+        assert!(!features.finished());
+        assert!(prefix_count <= features.steps() / 8);
+        assert_eq!(prefix_count == 0, cold == ColdRead::Traversal);
+
+        ACTIVITY.set(Some(Activity {
+            major_faults: 0,
+            input_blocks: 0,
+            wall: Instant::now(),
+            cpu: Duration::ZERO,
+        }));
+        FAULT_ON_SAMPLE.set(cold == ColdRead::Traversal);
+        let caller = thread::current().id();
+        let inits = AtomicUsize::new(0);
+        let reductions = AtomicUsize::new(0);
+        let result = QueryExecutor::try_fold_reduce_once(
+            4,
+            &prepared,
+            None,
+            prefix,
+            || {
+                if cold == ColdRead::Identity {
+                    cold_read();
+                }
+                if thread::current().id() != caller {
+                    assert_random_advice(library.source(), cold == ColdRead::Traversal);
+                }
+                inits.fetch_add(1, Ordering::Relaxed);
+                0
+            },
+            |acc, _| {
+                if cold == ColdRead::Fold {
+                    cold_read();
+                } else if cold == ColdRead::TraversalAfterMatch {
+                    FAULT_ON_SAMPLE.set(true);
+                }
+                Ok(acc + 1)
+            },
+            |left, right| {
+                assert_random_advice(library.source(), false);
+                reductions.fetch_add(1, Ordering::Relaxed);
+                Ok(left + right)
+            },
+        );
+        ACTIVITY.set(None);
+        FAULT_ON_SAMPLE.set(false);
+        assert_eq!(result?, expected);
+        let workers = if cold == ColdRead::TraversalAfterMatch {
+            1
+        } else {
+            4
+        };
+        assert_eq!(inits.load(Ordering::Relaxed), workers);
+        assert_eq!(reductions.load(Ordering::Relaxed), workers - 1);
+        Ok(())
+    }
+
+    #[test]
+    fn cached_fold_uses_all_workers_despite_identity_io() -> Result<()> {
+        run_fold(ColdRead::Identity, 256)
+    }
+
+    #[test]
+    fn cached_fold_uses_all_workers_despite_fold_io() -> Result<()> {
+        run_fold(ColdRead::Fold, 256)
+    }
+
+    #[test]
+    fn traversal_stalls_after_first_fold_can_still_select_serial_demand() -> Result<()> {
+        run_fold(ColdRead::TraversalAfterMatch, 256)
+    }
+
+    #[test]
+    fn demand_advice_ends_before_first_reduce() -> Result<()> {
+        run_fold(ColdRead::Traversal, 1)
+    }
+}
