@@ -46,6 +46,10 @@ impl Activity {
 
 #[allow(unsafe_code)]
 fn activity() -> Option<Activity> {
+    #[cfg(all(test, feature = "parallel"))]
+    if let Some(sample) = test_support::simulated_activity() {
+        return Some(sample);
+    }
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage writes one rusage to a valid writable pointer.
     if unsafe { libc::getrusage(libc::RUSAGE_THREAD, usage.as_mut_ptr()) } != 0 {
@@ -85,6 +89,102 @@ impl FaultSample {
             return None;
         }
         activity()?.speculate_since(self.start)
+    }
+}
+
+/// Mapping advice is shared by all cursors on this immutable mapping. The
+/// last demand scan restores normal advice, including on error or unwind.
+#[cfg(feature = "parallel")]
+pub(crate) struct DemandAdvice<'a>(&'a MappedFile);
+
+#[derive(Default)]
+pub(super) struct AdviceUsers {
+    sequential_tiles: usize,
+    demand_scans: usize,
+}
+
+impl MappedFile {
+    fn advice_users(&self) -> std::sync::MutexGuard<'_, AdviceUsers> {
+        self.advice_users
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(feature = "parallel")]
+    fn demand_advice(&self) -> Option<DemandAdvice<'_>> {
+        let mut users = self.advice_users();
+        if users.sequential_tiles != 0 {
+            return None;
+        }
+        if users.demand_scans == 0 {
+            self.map.advise(Advice::Random).ok()?;
+        }
+        users.demand_scans += 1;
+        Some(DemandAdvice(self))
+    }
+}
+
+#[cfg(feature = "parallel")]
+impl Drop for DemandAdvice<'_> {
+    fn drop(&mut self) {
+        let mut users = self.0.advice_users();
+        users.demand_scans -= 1;
+        if users.demand_scans == 0 {
+            let _ = self.0.map.advise(Advice::Normal);
+        }
+    }
+}
+
+#[cfg(feature = "parallel")]
+pub(crate) struct MappedPrefix<'a> {
+    source: &'a MappedFile,
+    faults: FaultSample,
+}
+
+#[cfg(feature = "parallel")]
+impl<'a> MappedPrefix<'a> {
+    pub(crate) fn start(source: &'a impl super::Source) -> Option<Self> {
+        Some(Self {
+            source: source.mapped_file()?,
+            faults: FaultSample::now()?,
+        })
+    }
+
+    /// getrusage counts everything on the calling thread. Advance the baseline
+    /// by the callback's increments so only the intervening traversal is sampled.
+    pub(crate) fn excluding<T>(sample: &mut Option<Self>, callback: impl FnOnce() -> T) -> T {
+        let Some(pilot) = sample else {
+            return callback();
+        };
+        let before = activity();
+        let result = callback();
+        if let Some((before, after)) = before.zip(activity()) {
+            let start = &mut pilot.faults.start;
+            start.major_faults += after.major_faults.saturating_sub(before.major_faults);
+            start.input_blocks += after.input_blocks.saturating_sub(before.input_blocks);
+            start.wall += after.wall - before.wall;
+            start.cpu += after.cpu.saturating_sub(before.cpu);
+        } else {
+            // An unmeasured callback makes this prefix unusable.
+            *sample = None;
+        }
+        result
+    }
+
+    pub(crate) fn max_matches(steps: u64) -> u64 {
+        steps / 8
+    }
+
+    pub(crate) fn finish(self, matches: u64, steps: u64) -> Option<DemandAdvice<'a>> {
+        // Broad scans can use the read-ahead they pay for. Observe the actual
+        // prefix, including its I/O, before changing advice on a selective scan.
+        if steps == 0
+            || matches > Self::max_matches(steps)
+            || self.faults.speculate() != Some(false)
+        {
+            return None;
+        }
+        self.source.demand_advice()
     }
 }
 
@@ -253,12 +353,15 @@ impl<'a> MappedScan<'a> {
             return;
         }
         let length = end - start;
-        if self
-            .source
-            .map
-            .advise_range(Advice::Sequential, start, length)
-            .is_ok()
+        let mut users = self.source.advice_users();
+        if users.demand_scans == 0
+            && self
+                .source
+                .map
+                .advise_range(Advice::Sequential, start, length)
+                .is_ok()
         {
+            users.sequential_tiles += 1;
             self.advised = Some((start, length));
         }
     }
@@ -266,7 +369,9 @@ impl<'a> MappedScan<'a> {
     #[inline]
     pub(crate) fn leave_tile(&mut self) {
         if let Some((start, length)) = self.advised.take() {
+            let mut users = self.source.advice_users();
             let _ = self.source.map.advise_range(Advice::Normal, start, length);
+            users.sequential_tiles -= 1;
         }
     }
 }

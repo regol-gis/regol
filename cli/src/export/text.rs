@@ -13,8 +13,32 @@ mod parallel;
 const DEFAULT_PRECISION: usize = 7;
 const MAX_PRECISION: usize = 15;
 const FLUSH_THRESHOLD: usize = 64 * 1024;
-const UNORDERED_PREFIX_STEPS: u64 = 512;
 const UNORDERED_CHUNK_BYTES: usize = 128 * 1024;
+
+#[derive(Clone, Copy)]
+pub(crate) struct Partitioning {
+    threads: usize,
+    prefix_steps: u64,
+}
+
+impl Partitioning {
+    pub(crate) fn new(threads: usize, _source: &impl Source, _setup: std::time::Duration) -> Self {
+        // A short prefix on a local mapping may run entirely in the pages
+        // brought in by opening the dictionary and tile directory. Extend the
+        // observation window only when opening and preparing already took time.
+        #[cfg(target_os = "linux")]
+        if _setup >= std::time::Duration::from_millis(16) && _source.mapped_file().is_some() {
+            return Self {
+                threads,
+                prefix_steps: 4096,
+            };
+        }
+        Self {
+            threads,
+            prefix_steps: 512,
+        }
+    }
+}
 
 static DIGITS2: &[u8; 200] = b"0001020304050607080910111213141516171819\
 2021222324252627282930313233343536373839\
@@ -325,7 +349,7 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
     bounds: Option<Bounds>,
     area: Option<&crate::area::Area>,
     sink: &Mutex<(&mut W, bool)>,
-    threads: usize,
+    partitioning: Partitioning,
     collection: bool,
     encoder: &PartitionEncoder<'_>,
 ) -> EncodeResult<()> {
@@ -356,10 +380,10 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
     };
 
     let res = regol::QueryExecutor::try_fold_reduce_once(
-        threads,
+        partitioning.threads,
         prepared,
         bounds,
-        UNORDERED_PREFIX_STEPS,
+        partitioning.prefix_steps,
         WorkerBuf::default,
         |mut acc, feature| {
             if let Some(area) = area
@@ -411,7 +435,7 @@ pub(crate) fn write_ids_partitioned<S: Source + Sync, W: Write + Send>(
     bounds: Option<Bounds>,
     area: Option<&crate::area::Area>,
     output: &mut W,
-    threads: usize,
+    partitioning: Partitioning,
 ) -> EncodeResult<()> {
     let sink = Mutex::new((output, true));
     run_partitioned(
@@ -419,7 +443,7 @@ pub(crate) fn write_ids_partitioned<S: Source + Sync, W: Write + Send>(
         bounds,
         area,
         &sink,
-        threads,
+        partitioning,
         false,
         &PartitionEncoder::Ids,
     )
@@ -432,7 +456,7 @@ pub(crate) fn write_partitioned<S: Source + Sync, W: Write + Send>(
     output: &mut W,
     format: Format,
     options: &Options,
-    threads: usize,
+    partitioning: Partitioning,
 ) -> EncodeResult<()> {
     let precision = options.precision.unwrap_or(DEFAULT_PRECISION);
     let sink = Mutex::new((output, true));
@@ -442,20 +466,28 @@ pub(crate) fn write_partitioned<S: Source + Sync, W: Write + Send>(
             let collection = encoder.collection;
             encoder.begin(sink.lock().unwrap().0)?;
             let wrapped = PartitionEncoder::GeoJson(encoder);
-            run_partitioned(prepared, bounds, area, &sink, threads, collection, &wrapped)?;
+            run_partitioned(
+                prepared,
+                bounds,
+                area,
+                &sink,
+                partitioning,
+                collection,
+                &wrapped,
+            )?;
             if let PartitionEncoder::GeoJson(encoder) = wrapped {
                 encoder.end(sink.lock().unwrap().0)?;
             }
         }
         Format::Wkt => {
             let wrapped = PartitionEncoder::Wkt(GeometryWriter::new(Encoding::Wkt, precision));
-            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
+            run_partitioned(prepared, bounds, area, &sink, partitioning, false, &wrapped)?;
         }
         Format::Csv => {
             let writer = CsvWriter::new(options, precision);
             writer.header(sink.lock().unwrap().0)?;
             let wrapped = PartitionEncoder::Csv(writer);
-            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
+            run_partitioned(prepared, bounds, area, &sink, partitioning, false, &wrapped)?;
         }
     }
     Ok(())
@@ -1306,6 +1338,24 @@ mod tests {
     use super::*;
     use parallel::{BATCH_SIZE, CHUNK_SIZE, MIN_PARALLEL_SIZE};
     use serde_json::{Value, json};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_slow_mapped_setup_extends_the_export_prefix() -> std::io::Result<()> {
+        use std::time::Duration;
+        let file = tempfile::tempfile()?;
+        file.set_len(4096)?;
+        // SAFETY: This test owns the anonymous file and leaves it immutable.
+        let map = unsafe { regol::source::MappedFile::from_immutable_file(&file)? };
+        let slow = Duration::from_millis(16);
+        assert_eq!(Partitioning::new(8, &map, Duration::ZERO).prefix_steps, 512);
+        assert_eq!(Partitioning::new(8, &map, slow).prefix_steps, 4096);
+        assert_eq!(
+            Partitioning::new(8, &b"bytes".as_slice(), slow).prefix_steps,
+            512
+        );
+        Ok(())
+    }
 
     #[test]
     fn fast_decimal_7_matches_general_formatter() {

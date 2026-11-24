@@ -236,6 +236,7 @@ fn run<S: Source + Sync>(
     library: &Library<S>,
     options: &Options,
     area: Option<&Area>,
+    open_started: std::time::Instant,
     output: &mut (impl Write + Send),
 ) -> Result<(), Box<dyn Error>> {
     let prepared = options.query.prepare(library)?;
@@ -267,10 +268,14 @@ fn run<S: Source + Sync>(
         && library.tile_count() > 1
         && matches!(options.format, Format::Ids | Format::Text(_))
     {
-        let threads = options.query_threads();
+        let partitioning = export::text::Partitioning::new(
+            options.query_threads(),
+            library.source(),
+            open_started.elapsed(),
+        );
         match options.format {
             Format::Ids => {
-                export::text::write_ids_partitioned(&prepared, bounds, area, output, threads)
+                export::text::write_ids_partitioned(&prepared, bounds, area, output, partitioning)
                     .map_err(|error| error as Box<dyn Error>)?;
             }
             Format::Text(format) => {
@@ -281,7 +286,7 @@ fn run<S: Source + Sync>(
                     output,
                     format,
                     &options.text,
-                    threads,
+                    partitioning,
                 )
                 .map_err(|error| error as Box<dyn Error>)?;
             }
@@ -412,10 +417,17 @@ fn execute() -> Result<(), Box<dyn Error>> {
     };
     let area = options.area.as_deref().map(Area::open).transpose()?;
     let mut output = BufWriter::with_capacity(128 * 1024, io::stdout());
+    let open_started = std::time::Instant::now();
     match options.input.open(&options.file)? {
-        gol::Input::Http(library) => run(&library, &options, area.as_ref(), &mut output)?,
-        gol::Input::Mmap(library) => run(&library, &options, area.as_ref(), &mut output)?,
-        gol::Input::File(library) => run(&library, &options, area.as_ref(), &mut output)?,
+        gol::Input::Http(library) => {
+            run(&library, &options, area.as_ref(), open_started, &mut output)?
+        }
+        gol::Input::Mmap(library) => {
+            run(&library, &options, area.as_ref(), open_started, &mut output)?
+        }
+        gol::Input::File(library) => {
+            run(&library, &options, area.as_ref(), open_started, &mut output)?
+        }
     }
     output.flush()?;
     Ok(())
