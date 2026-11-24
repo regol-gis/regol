@@ -1,3 +1,5 @@
+mod frontier;
+
 use crate::{
     Error, Feature, Library, Result,
     decode::{Decode, ReadWindow, add},
@@ -235,6 +237,7 @@ pub struct Features<'a, S> {
     prune: bool,
     pub(crate) min_branch_width: u32,
     tile: TileExtent,
+    frontier_until: Option<u64>,
     duplicate_flags: u16,
     steps: u64,
     done: bool,
@@ -265,6 +268,7 @@ impl<'a, S: Source> Features<'a, S> {
             prune: bounds.is_some(),
             min_branch_width: 0,
             tile: TileExtent::default(),
+            frontier_until: None,
             duplicate_flags: 0,
             steps: 0,
             done: false,
@@ -304,6 +308,21 @@ impl<'a, S: Source> Features<'a, S> {
     }
     fn start_tile(&mut self, tile: Tile) -> Result<()> {
         if let Some((start, bounds)) = self.index_tile(tile)? {
+            use crate::source::TileVisit;
+
+            if self.prune
+                && let Some(schedule) = self.library.source().range_query()
+            {
+                let visit = schedule.visit_tile(start);
+                if visit == TileVisit::Skip {
+                    return Ok(());
+                }
+                // Speculation is optional. Normal scans retain their checked read path.
+                let _ = self.plan_group(schedule, start, bounds);
+                if visit == TileVisit::PlanOnly {
+                    return Ok(());
+                }
+            }
             #[cfg(all(feature = "mmap", target_os = "linux"))]
             if let Some(scan) = &mut self.read_ahead {
                 scan.leave_tile();
@@ -618,6 +637,7 @@ impl<'a, S: Source> Features<'a, S> {
             prune: self.prune,
             min_branch_width: self.min_branch_width,
             tile: self.tile,
+            frontier_until: None,
             duplicate_flags: self.duplicate_flags,
             steps: 0,
             done: false,

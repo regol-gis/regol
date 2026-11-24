@@ -1,3 +1,5 @@
+mod resumable;
+
 use super::{Literal, LocalValueTest, Predicate, Query, Test, Types, contains_bytes_in_tail};
 use crate::{
     Bounds, Feature, Features, Library, Result, TagValue,
@@ -714,6 +716,7 @@ impl<'q> CompiledPredicate<'q> {
 // Keep the hot serial plans in the iterator closure. The remaining plans
 // use the normal dispatcher, and no plan owns per-result state.
 enum StreamPlan<'a, 'p, 'q, S> {
+    Resumable(resumable::Pool<'a, S>),
     Indexed(IndexedMatches<'a, S>),
     All(Features<'a, S>),
     Types(Features<'a, S>, Types),
@@ -1395,6 +1398,16 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
         let mut seen = 0;
         let mut stream = if let Some(indexed) = self.indexed_matches(bounds) {
             StreamPlan::Indexed(indexed)
+        } else if bounds.is_some()
+            && self
+                .library
+                .source()
+                .range_query()
+                .is_some_and(|schedule| schedule.width() != 0)
+        {
+            let mut features = self.features(bounds);
+            features.min_branch_width = min_branch_width;
+            StreamPlan::Resumable(resumable::Pool::new(features))
         } else {
             observation = self.scan_observation(bounds);
             let mut features = self.features(bounds);
@@ -1411,6 +1424,7 @@ impl<'a, S: Source> PreparedQuery<'a, '_, S> {
             }
         };
         std::iter::from_fn(move || match &mut stream {
+            StreamPlan::Resumable(pool) => pool.next(self),
             StreamPlan::Indexed(matches) => matches.next(),
             StreamPlan::All(features) => {
                 features.next_with_budget::<true>(|_, _, _| Ok(true), || Ok(true))

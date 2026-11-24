@@ -11,9 +11,22 @@
 //! also provides `MappedFile`, whose safety contract requires an immutable backing file.
 use std::{fs::File, io, path::Path, sync::OnceLock};
 
+mod resumable;
+pub use resumable::{RangeQuery, RangeQueryEvent, TileVisit, TraversalOrder, TraversalOrdinal};
+
 /// Random access to a finite byte source. Implementations must fill the whole
 /// output or return an error. A short read must never be reported as success.
 pub trait Source {
+    /// Opt into cooperative range scheduling for bounded prepared queries
+    /// and checked index prefetch for bounded spatial traversal. By default,
+    /// queries make ordinary synchronous reads through this source.
+    fn range_query(&self) -> Option<&dyn RangeQuery<Self>>
+    where
+        Self: Sized,
+    {
+        None
+    }
+
     /// Length of the source in bytes.
     fn len(&self) -> u64;
     /// Whether the source contains zero bytes.
