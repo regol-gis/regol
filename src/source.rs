@@ -409,6 +409,8 @@ pub struct MappedFile {
     file: std::sync::Arc<File>,
     #[cfg(target_os = "linux")]
     helpers: Option<mmap_read_ahead::HelperOwner>,
+    #[cfg(target_os = "linux")]
+    advice_users: std::sync::Arc<std::sync::Mutex<mmap_read_ahead::AdviceUsers>>,
 }
 #[cfg(feature = "mmap")]
 impl MappedFile {
@@ -449,6 +451,8 @@ impl MappedFile {
             file: std::sync::Arc::new(file),
             #[cfg(target_os = "linux")]
             helpers: Some(mmap_read_ahead::HelperOwner::default()),
+            #[cfg(target_os = "linux")]
+            advice_users: Default::default(),
         })
     }
 
@@ -460,6 +464,7 @@ impl MappedFile {
                 map: self.map.clone(),
                 file: self.file.clone(),
                 helpers: None,
+                advice_users: self.advice_users.clone(),
             };
             crate::Library::with_dictionary_loading(
                 source,
@@ -499,7 +504,7 @@ impl Source for MappedFile {
 #[cfg(all(feature = "mmap", target_os = "linux"))]
 mod mmap_read_ahead;
 #[cfg(all(feature = "mmap", feature = "parallel", target_os = "linux"))]
-pub(crate) use mmap_read_ahead::FaultSample;
+pub(crate) use mmap_read_ahead::{FaultSample, MappedPrefix};
 #[cfg(all(feature = "mmap", target_os = "linux"))]
 pub(crate) use mmap_read_ahead::{MappedScan, WorkerMap};
 

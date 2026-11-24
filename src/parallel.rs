@@ -170,7 +170,8 @@ impl QueryExecutor {
     ///
     /// High-latency sources can request immediate tile dispatch for bounded
     /// queries to overlap independent reads. Local sources avoid pool startup
-    /// overhead for short queries.
+    /// overhead for short queries. On Linux, a selective mapped prefix stalled on
+    /// large reads can switch to demand paging for the remaining scan.
     pub fn count_once<S: Source + Sync>(
         threads: usize,
         query: &PreparedQuery<'_, '_, S>,
@@ -181,9 +182,17 @@ impl QueryExecutor {
             return query.count_features(&mut features, || Ok(true));
         }
         let prefix_steps = default_prefix_steps(query, bounds);
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        let sample = crate::source::MappedPrefix::start(query.library.source());
         let prefix = query.count_features(&mut features, step_budget(prefix_steps))?;
         if features.finished() {
             return Ok(prefix);
+        }
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        let demand = sample.and_then(|pilot| pilot.finish(prefix, features.steps()));
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        if demand.is_some() && prefix != 0 {
+            return Ok(prefix + query.count_features(&mut features, || Ok(true))?);
         }
         let (partitions, index_steps) = features.partitions(threads.saturating_mul(4))?;
         let work_items = match &partitions {
@@ -292,7 +301,9 @@ impl QueryExecutor {
     /// fan out across up to `threads` workers (reusing the calling thread as a
     /// worker) in unspecified partition order while enforcing the library's
     /// shared traversal-step limit. Each worker initializes its accumulator
-    /// once and reuses it across all partitions it claims.
+    /// once and reuses it across all partitions it claims. On Linux, a selective
+    /// mapped prefix that stalls on large reads can switch to demand paging.
+    /// If that prefix already produced matches, the same cursor continues serially.
     pub fn try_fold_reduce_once<'a, S: Source + Sync, T: Send>(
         threads: usize,
         query: &PreparedQuery<'a, '_, S>,
@@ -306,9 +317,30 @@ impl QueryExecutor {
         if threads <= 1 {
             return query.fold_unbounded(&mut features, identity(), fold);
         }
-        let prefix = query.fold_in(&mut features, step_budget(prefix_steps), identity(), &fold)?;
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        let sample = crate::source::MappedPrefix::start(query.library.source());
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        let mut matches = 0;
+        let prefix = query.fold_in(
+            &mut features,
+            step_budget(prefix_steps),
+            identity(),
+            |acc, feature| {
+                #[cfg(all(feature = "mmap", target_os = "linux"))]
+                {
+                    matches += 1;
+                }
+                fold(acc, feature)
+            },
+        )?;
         if features.finished() {
             return Ok(prefix);
+        }
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        let demand = sample.and_then(|pilot| pilot.finish(matches, features.steps()));
+        #[cfg(all(feature = "mmap", target_os = "linux"))]
+        if demand.is_some() && matches != 0 {
+            return query.fold_unbounded(&mut features, prefix, fold);
         }
         let (partitions, index_steps) = features.partitions(threads.saturating_mul(4))?;
         let work_items = match &partitions {

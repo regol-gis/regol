@@ -13,7 +13,29 @@ mod parallel;
 const DEFAULT_PRECISION: usize = 7;
 const MAX_PRECISION: usize = 15;
 const FLUSH_THRESHOLD: usize = 64 * 1024;
-const UNORDERED_PREFIX_STEPS: u64 = 512;
+#[derive(Clone, Copy)]
+pub(crate) struct Partitioning {
+    threads: usize,
+    prefix_steps: u64,
+}
+
+impl Partitioning {
+    pub(crate) fn new(threads: usize, _source: &impl Source) -> Self {
+        // A short prefix on a local mapping may run entirely in the pages
+        // brought in by opening the dictionary and tile directory.
+        #[cfg(target_os = "linux")]
+        if _source.mapped_file().is_some() {
+            return Self {
+                threads,
+                prefix_steps: 4096,
+            };
+        }
+        Self {
+            threads,
+            prefix_steps: 512,
+        }
+    }
+}
 const UNORDERED_CHUNK_BYTES: usize = 128 * 1024;
 
 static DIGITS2: &[u8; 200] = b"0001020304050607080910111213141516171819\
@@ -325,7 +347,7 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
     bounds: Option<Bounds>,
     area: Option<&crate::area::Area>,
     sink: &Mutex<(&mut W, bool)>,
-    threads: usize,
+    partitioning: Partitioning,
     collection: bool,
     encoder: &PartitionEncoder<'_>,
 ) -> EncodeResult<()> {
@@ -356,10 +378,10 @@ fn run_partitioned<S: Source + Sync, W: Write + Send>(
     };
 
     let res = regol::QueryExecutor::try_fold_reduce_once(
-        threads,
+        partitioning.threads,
         prepared,
         bounds,
-        UNORDERED_PREFIX_STEPS,
+        partitioning.prefix_steps,
         WorkerBuf::default,
         |mut acc, feature| {
             if let Some(area) = area
@@ -411,7 +433,7 @@ pub(crate) fn write_ids_partitioned<S: Source + Sync, W: Write + Send>(
     bounds: Option<Bounds>,
     area: Option<&crate::area::Area>,
     output: &mut W,
-    threads: usize,
+    partitioning: Partitioning,
 ) -> EncodeResult<()> {
     let sink = Mutex::new((output, true));
     run_partitioned(
@@ -419,7 +441,7 @@ pub(crate) fn write_ids_partitioned<S: Source + Sync, W: Write + Send>(
         bounds,
         area,
         &sink,
-        threads,
+        partitioning,
         false,
         &PartitionEncoder::Ids,
     )
@@ -432,7 +454,7 @@ pub(crate) fn write_partitioned<S: Source + Sync, W: Write + Send>(
     output: &mut W,
     format: Format,
     options: &Options,
-    threads: usize,
+    partitioning: Partitioning,
 ) -> EncodeResult<()> {
     let precision = options.precision.unwrap_or(DEFAULT_PRECISION);
     let sink = Mutex::new((output, true));
@@ -442,20 +464,28 @@ pub(crate) fn write_partitioned<S: Source + Sync, W: Write + Send>(
             let collection = encoder.collection;
             encoder.begin(sink.lock().unwrap().0)?;
             let wrapped = PartitionEncoder::GeoJson(encoder);
-            run_partitioned(prepared, bounds, area, &sink, threads, collection, &wrapped)?;
+            run_partitioned(
+                prepared,
+                bounds,
+                area,
+                &sink,
+                partitioning,
+                collection,
+                &wrapped,
+            )?;
             if let PartitionEncoder::GeoJson(encoder) = wrapped {
                 encoder.end(sink.lock().unwrap().0)?;
             }
         }
         Format::Wkt => {
             let wrapped = PartitionEncoder::Wkt(GeometryWriter::new(Encoding::Wkt, precision));
-            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
+            run_partitioned(prepared, bounds, area, &sink, partitioning, false, &wrapped)?;
         }
         Format::Csv => {
             let writer = CsvWriter::new(options, precision);
             writer.header(sink.lock().unwrap().0)?;
             let wrapped = PartitionEncoder::Csv(writer);
-            run_partitioned(prepared, bounds, area, &sink, threads, false, &wrapped)?;
+            run_partitioned(prepared, bounds, area, &sink, partitioning, false, &wrapped)?;
         }
     }
     Ok(())

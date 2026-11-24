@@ -88,6 +88,74 @@ impl FaultSample {
     }
 }
 
+/// Mapping advice is shared by all cursors on this immutable mapping. The
+/// last demand scan restores normal advice, including on error or unwind.
+#[cfg(feature = "parallel")]
+pub(crate) struct DemandAdvice<'a>(&'a MappedFile);
+
+#[derive(Default)]
+pub(super) struct AdviceUsers {
+    sequential_tiles: usize,
+    demand_scans: usize,
+}
+
+impl MappedFile {
+    fn advice_users(&self) -> std::sync::MutexGuard<'_, AdviceUsers> {
+        self.advice_users
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(feature = "parallel")]
+    fn demand_advice(&self) -> Option<DemandAdvice<'_>> {
+        let mut users = self.advice_users();
+        if users.sequential_tiles != 0 {
+            return None;
+        }
+        if users.demand_scans == 0 {
+            self.map.advise(Advice::Random).ok()?;
+        }
+        users.demand_scans += 1;
+        Some(DemandAdvice(self))
+    }
+}
+
+#[cfg(feature = "parallel")]
+impl Drop for DemandAdvice<'_> {
+    fn drop(&mut self) {
+        let mut users = self.0.advice_users();
+        users.demand_scans -= 1;
+        if users.demand_scans == 0 {
+            let _ = self.0.map.advise(Advice::Normal);
+        }
+    }
+}
+
+#[cfg(feature = "parallel")]
+pub(crate) struct MappedPrefix<'a> {
+    source: &'a MappedFile,
+    faults: FaultSample,
+}
+
+#[cfg(feature = "parallel")]
+impl<'a> MappedPrefix<'a> {
+    pub(crate) fn start(source: &'a impl super::Source) -> Option<Self> {
+        Some(Self {
+            source: source.mapped_file()?,
+            faults: FaultSample::now()?,
+        })
+    }
+
+    pub(crate) fn finish(self, matches: u64, steps: u64) -> Option<DemandAdvice<'a>> {
+        // Broad scans can use the read-ahead they pay for. Observe the actual
+        // prefix, including its I/O, before changing advice on a selective scan.
+        if steps == 0 || matches > steps / 8 || self.faults.speculate() != Some(false) {
+            return None;
+        }
+        self.source.demand_advice()
+    }
+}
+
 // The caller's immutability guarantee ends when their MappedFile drops.
 // Only this owner can keep a worker mapping alive between jobs. A worker
 // holds the read guard throughout its accesses and cannot return a borrow.
@@ -253,12 +321,15 @@ impl<'a> MappedScan<'a> {
             return;
         }
         let length = end - start;
-        if self
-            .source
-            .map
-            .advise_range(Advice::Sequential, start, length)
-            .is_ok()
+        let mut users = self.source.advice_users();
+        if users.demand_scans == 0
+            && self
+                .source
+                .map
+                .advise_range(Advice::Sequential, start, length)
+                .is_ok()
         {
+            users.sequential_tiles += 1;
             self.advised = Some((start, length));
         }
     }
@@ -266,7 +337,9 @@ impl<'a> MappedScan<'a> {
     #[inline]
     pub(crate) fn leave_tile(&mut self) {
         if let Some((start, length)) = self.advised.take() {
+            let mut users = self.source.advice_users();
             let _ = self.source.map.advise_range(Advice::Normal, start, length);
+            users.sequential_tiles -= 1;
         }
     }
 }

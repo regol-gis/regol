@@ -57,6 +57,10 @@ fn only_slow_large_demand_reads_decline_speculation() {
 }
 
 pub(crate) fn sequential_at(map: &MappedFile, offset: usize) -> Option<bool> {
+    flag_at(map, offset, "sr")
+}
+
+fn flag_at(map: &MappedFile, offset: usize, wanted: &str) -> Option<bool> {
     let address = map.map.as_ptr() as usize + offset;
     let contents = fs::read_to_string("/proc/self/smaps").ok()?;
     let mut in_mapping = false;
@@ -71,10 +75,36 @@ pub(crate) fn sequential_at(map: &MappedFile, offset: usize) -> Option<bool> {
             in_mapping = range.contains(&address);
         }
         if let Some(flags) = line.strip_prefix("VmFlags:").filter(|_| in_mapping) {
-            return Some(flags.split_whitespace().any(|flag| flag == "sr"));
+            return Some(flags.split_whitespace().any(|flag| flag == wanted));
         }
     }
     None
+}
+
+#[cfg(feature = "parallel")]
+#[test]
+fn overlapping_demand_scans_restore_mapping_advice_after_the_last_exit() -> io::Result<()> {
+    let map = mapped_fixture(&[0; 8192])?;
+    let first = map.demand_advice().expect("random advice");
+    let second = map.demand_advice().expect("overlapping scan");
+    drop(first);
+    let mut scan = MappedScan::new(&map);
+    force_sequential(&mut scan);
+    scan.enter_tile(0, 4096);
+    assert!(scan.advised.is_none());
+    if let Some(random) = flag_at(&map, 0, "rr") {
+        assert!(random);
+    }
+    drop(second);
+    if let Some(random) = flag_at(&map, 4096, "rr") {
+        assert!(!random);
+    }
+    scan.enter_tile(0, 4096);
+    assert!(scan.advised.is_some());
+    assert!(map.demand_advice().is_none());
+    drop(scan);
+    assert!(map.demand_advice().is_some());
+    Ok(())
 }
 
 #[test]

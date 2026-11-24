@@ -267,10 +267,11 @@ fn run<S: Source + Sync>(
         && library.tile_count() > 1
         && matches!(options.format, Format::Ids | Format::Text(_))
     {
-        let threads = options.query_threads();
+        let partitioning =
+            export::text::Partitioning::new(options.query_threads(), library.source());
         match options.format {
             Format::Ids => {
-                export::text::write_ids_partitioned(&prepared, bounds, area, output, threads)
+                export::text::write_ids_partitioned(&prepared, bounds, area, output, partitioning)
                     .map_err(|error| error as Box<dyn Error>)?;
             }
             Format::Text(format) => {
@@ -281,7 +282,7 @@ fn run<S: Source + Sync>(
                     output,
                     format,
                     &options.text,
-                    threads,
+                    partitioning,
                 )
                 .map_err(|error| error as Box<dyn Error>)?;
             }
